@@ -14,7 +14,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-authdb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-   
+    ports:
+      - '5433:5432'
     networks:
       - backend
     healthcheck:

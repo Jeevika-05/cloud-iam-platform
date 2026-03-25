@@ -1,18 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
-  
+  url           = "(function)"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-enum Role {
-  USER
-  ADMIN
-  ANALYST
 }
 
 model User {
@@ -26,4 +20,10 @@ model User {
   updatedAt    DateTime @updatedAt
 
   @@map("users")
+}
+
+enum Role {
+  USER
+  ADMIN
+  ANALYST
 }
