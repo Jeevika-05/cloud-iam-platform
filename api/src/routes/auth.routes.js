@@ -1,23 +1,20 @@
 import { Router } from 'express';
 import * as authController from '../controllers/auth.controller.js';
 import authenticate from '../middleware/authenticate.js';
-import {
-  validate,
-  registerRules,
-  loginRules,
-  refreshRules,
-} from '../middleware/validate.js';
+import { validate, registerRules, loginRules, sessionIdParamRule } from '../middleware/validate.js';
+import { authLimiter } from '../middleware/rateLimiter.js';
 
 const router = Router();
 
 // ─────────────────────────────────────────────
 // Public routes
 // ─────────────────────────────────────────────
-router.post('/register', registerRules, validate, authController.register);
+router.post('/register', authLimiter, registerRules, validate, authController.register);
 
-router.post('/login', loginRules, validate, authController.login);
+router.post('/login', authLimiter, loginRules, validate, authController.login);
 
-router.post('/refresh', refreshRules, validate, authController.refresh);
+// Cookie-based refresh
+router.post('/refresh', authLimiter, authController.refresh);
 
 // ─────────────────────────────────────────────
 // Protected routes
@@ -25,5 +22,28 @@ router.post('/refresh', refreshRules, validate, authController.refresh);
 router.post('/logout', authenticate, authController.logout);
 
 router.get('/profile', authenticate, authController.getProfile);
+
+// ─────────────────────────────────────────────
+// Session management (IAM)
+// ─────────────────────────────────────────────
+router.get('/sessions', authenticate, authController.getSessions);
+
+router.get('/sessions/current', authenticate, authController.getCurrentSession);
+
+// Revoke single session
+router.delete(
+  '/sessions/:id',
+  authenticate,
+  sessionIdParamRule,
+  validate,
+  authController.revokeSession
+);
+
+// Revoke all sessions (🔥 important)
+router.delete(
+  '/sessions',
+  authenticate,
+  authController.revokeAllSessions
+);
 
 export default router;

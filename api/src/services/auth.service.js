@@ -1,4 +1,6 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import prisma from '../config/database.js';
 import AppError from '../utils/AppError.js';
 import logger from '../utils/logger.js';
@@ -9,11 +11,12 @@ import {
 } from '../utils/jwt.js';
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+const MAX_SESSIONS = 5; // optional limit
 
-// ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 // REGISTER
-// ───────────────────────────────────────────────────────────
-export const register = async ({ name, email, password }) => {
+// ─────────────────────────────────────────────
+export const register = async ({ name, email, password, ipAddress, userAgent }) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   const existing = await prisma.user.findUnique({
@@ -31,28 +34,23 @@ export const register = async ({ name, email, password }) => {
       name,
       email: normalizedEmail,
       password: hashedPassword,
-      role: 'USER', // 🔐 Prevent role injection
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      createdAt: true,
+      role: 'USER',
     },
   });
 
-  const tokens = await issueTokens(user);
+  const { password: _, ...safeUser } = user;
 
-  logger.info('REGISTER_SUCCESS', { userId: user.id, email: user.email });
+  const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
 
-  return { user, ...tokens };
+  logger.info('REGISTER_SUCCESS', { userId: user.id });
+
+  return { user: safeUser, ...tokens };
 };
 
-// ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 // LOGIN
-// ───────────────────────────────────────────────────────────
-export const login = async ({ email, password }) => {
+// ─────────────────────────────────────────────
+export const login = async ({ email, password, ipAddress, userAgent }) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   const user = await prisma.user.findUnique({
@@ -62,76 +60,98 @@ export const login = async ({ email, password }) => {
   // Prevent user enumeration
   if (!user) {
     await bcrypt.compare(password, '$2b$12$invalidhashplaceholderXXXXXXXXXXXXXXXXXXXXXXXXXX');
-    logger.warn('LOGIN_FAILED', { email: normalizedEmail });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
 
   if (!isMatch) {
-    logger.warn('LOGIN_FAILED', { userId: user.id });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 
-  const { password: _, refreshToken: __, ...safeUser } = user;
+  const { password: _, ...safeUser } = user;
 
-  const tokens = await issueTokens(safeUser);
+  const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
 
   logger.info('LOGIN_SUCCESS', { userId: user.id });
 
   return { user: safeUser, ...tokens };
 };
 
-// ───────────────────────────────────────────────────────────
-// REFRESH TOKEN
-// ───────────────────────────────────────────────────────────
-export const refresh = async (token) => {
+// ─────────────────────────────────────────────
+// REFRESH TOKEN (ROTATION)
+// ─────────────────────────────────────────────
+export const refresh = async (token, { ipAddress, userAgent }) => {
   const decoded = verifyRefreshToken(token);
 
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.sub },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      refreshToken: true,
-    },
+  if (!decoded?.jti) {
+    throw new AppError('Invalid refresh token', 401, 'REFRESH_TOKEN_INVALID');
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { id: decoded.jti },
+    include: { user: true },
   });
 
-  if (!user) {
-    throw new AppError('Invalid token', 401, 'REFRESH_TOKEN_INVALID');
+  // 🔥 CRITICAL VALIDATION
+  if (!session || session.expiresAt < new Date()) {
+    throw new AppError('Session expired or invalid', 401, 'REFRESH_TOKEN_INVALID');
   }
 
-  // 🔐 Compare hashed refresh token
-  const isValid = await bcrypt.compare(token, user.refreshToken || '');
-
-  if (!isValid) {
-    throw new AppError('Invalid or revoked refresh token', 401, 'REFRESH_TOKEN_INVALID');
+  // 🔐 OPTIONAL: Device/IP check (log suspicious activity)
+  if (
+    (session.ipAddress && session.ipAddress !== ipAddress) ||
+    (session.userAgent && session.userAgent !== userAgent)
+  ) {
+    logger.warn('SUSPICIOUS_SESSION_USE', {
+      userId: session.userId,
+      originalIp: session.ipAddress,
+      currentIp: ipAddress,
+    });
   }
 
-  const tokens = await issueTokens(user);
+  // 🔄 ROTATION: delete old session
+  await prisma.session.delete({
+    where: { id: decoded.jti },
+  });
 
-  logger.info('TOKEN_REFRESH', { userId: user.id });
+  const { password: _, ...safeUser } = session.user;
+
+  const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
+
+  logger.info('TOKEN_REFRESH', { userId: safeUser.id });
 
   return tokens;
 };
 
-// ───────────────────────────────────────────────────────────
-// LOGOUT
-// ───────────────────────────────────────────────────────────
-export const logout = async (userId) => {
-  await prisma.user.update({
-    where: { id: userId },
-    data: { refreshToken: null },
+// ─────────────────────────────────────────────
+// LOGOUT (CURRENT SESSION)
+// ─────────────────────────────────────────────
+export const logout = async (token) => {
+  const decoded = verifyRefreshToken(token);
+
+  if (!decoded?.jti) {
+    throw new AppError('Invalid token', 401, 'LOGOUT_FAILED');
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { id: decoded.jti },
   });
 
-  logger.info('LOGOUT_SUCCESS', { userId });
+  if (!session) {
+    throw new AppError('Session already invalid', 400, 'LOGOUT_FAILED');
+  }
+
+  await prisma.session.delete({
+    where: { id: decoded.jti },
+  });
+
+  logger.info('LOGOUT_SUCCESS', { userId: decoded.sub });
 };
 
-// ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 // GET PROFILE
-// ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
 export const getProfile = async (userId) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -152,25 +172,113 @@ export const getProfile = async (userId) => {
   return user;
 };
 
-// ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// GET ACTIVE SESSIONS
+// ─────────────────────────────────────────────
+export const getActiveSessions = async (userId) => {
+  return prisma.session.findMany({
+    where: {
+      userId,
+      expiresAt: { gt: new Date() },
+    },
+    select: {
+      id: true,
+      userAgent: true,
+      ipAddress: true,
+      createdAt: true,
+      expiresAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
+// ─────────────────────────────────────────────
+// GET CURRENT SESSION
+// ─────────────────────────────────────────────
+export const getCurrentSession = async (jti) => {
+  const session = await prisma.session.findUnique({
+    where: { id: jti },
+  });
+
+  if (!session) {
+    throw new AppError('Session not found', 404, 'NOT_FOUND');
+  }
+
+  return session;
+};
+
+// ─────────────────────────────────────────────
+// REVOKE SINGLE SESSION
+// ─────────────────────────────────────────────
+export const revokeSession = async (sessionId, userId) => {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+  });
+
+  if (!session) {
+    throw new AppError('Session not found', 404, 'NOT_FOUND');
+  }
+
+  if (session.userId !== userId) {
+    throw new AppError('Forbidden', 403, 'FORBIDDEN');
+  }
+
+  await prisma.session.delete({
+    where: { id: sessionId },
+  });
+
+  logger.info('SESSION_REVOKED', { userId, sessionId });
+};
+
+// ─────────────────────────────────────────────
+// REVOKE ALL SESSIONS
+// ─────────────────────────────────────────────
+export const revokeAllSessions = async (userId) => {
+  await prisma.session.deleteMany({
+    where: { userId },
+  });
+
+  logger.info('ALL_SESSIONS_REVOKED', { userId });
+};
+
+// ─────────────────────────────────────────────
 // INTERNAL: ISSUE TOKENS
-// ───────────────────────────────────────────────────────────
-const issueTokens = async (user) => {
+// ─────────────────────────────────────────────
+const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
+  // 🔒 Limit active sessions
+  const sessions = await prisma.session.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (sessions.length >= MAX_SESSIONS) {
+    await prisma.session.delete({
+      where: { id: sessions[0].id },
+    });
+  }
+
   const payload = {
     sub: user.id,
     email: user.email,
     role: user.role,
   };
 
+  const jti = crypto.randomUUID();
+
   const accessToken = generateAccessToken(payload);
-  const refreshToken = generateRefreshToken(payload);
+  const refreshToken = generateRefreshToken(payload, jti);
 
-  // 🔐 Store hashed refresh token (CRITICAL SECURITY)
-  const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+  const decoded = jwt.decode(refreshToken);
+  const expiresAt = new Date(decoded.exp * 1000);
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: hashedRefreshToken },
+  await prisma.session.create({
+    data: {
+      id: jti,
+      userId: user.id,
+      ipAddress: ipAddress || null,
+      userAgent: userAgent || null,
+      expiresAt,
+    },
   });
 
   return { accessToken, refreshToken };
