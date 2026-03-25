@@ -4,7 +4,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import hpp from 'hpp';
-import xss from 'xss-clean';
+import xss from 'xss';
 
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
@@ -43,8 +43,26 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // ── Prevent parameter pollution ──
 app.use(hpp());
 
-// ── Prevent XSS ──
-app.use(xss());
+// ── Prevent XSS (CUSTOM SANITIZER) ──
+const sanitize = (obj) => {
+  if (!obj) return obj;
+
+  for (let key in obj) {
+    if (typeof obj[key] === 'string') {
+      obj[key] = xss(obj[key]);
+    } else if (typeof obj[key] === 'object') {
+      sanitize(obj[key]); // recursive for nested objects
+    }
+  }
+  return obj;
+};
+
+app.use((req, res, next) => {
+  if (req.body) sanitize(req.body);
+  if (req.query) sanitize(req.query);
+  if (req.params) sanitize(req.params);
+  next();
+});
 
 // ── Request logging ──
 app.use(

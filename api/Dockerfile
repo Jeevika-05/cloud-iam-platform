@@ -1,40 +1,39 @@
-# ── Build stage ───────────────────────────────────────────────────────────────
+# ── Build stage ─────────────────────────
 FROM node:20-alpine AS builder
+RUN apk add --no-cache openssl   
 
 WORKDIR /app
 
 COPY package*.json ./
 COPY prisma ./prisma/
 
-RUN npm ci --only=production && \
+RUN npm ci --omit=dev && \
     npx prisma generate
 
-# ── Production stage ──────────────────────────────────────────────────────────
+
+# ── Production stage ────────────────────
 FROM node:20-alpine AS production
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init openssl
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
 WORKDIR /app
 
-# Non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser  -S nodeuser -u 1001
+# Create non-root user
+RUN addgroup -S nodejs && adduser -S nodeuser
 
-COPY --from=builder --chown=nodeuser:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodeuser:nodejs /app/prisma      ./prisma
-COPY --chown=nodeuser:nodejs src ./src
-COPY --chown=nodeuser:nodejs package*.json ./
+# Copy files
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
+
+COPY src ./src
+COPY package*.json ./
 
 USER nodeuser
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health || exit 1
-
-# dumb-init handles PID 1 & signal forwarding correctly
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "src/server.js"]
+CMD ["node", "src/server.js"]   
