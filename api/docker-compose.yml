@@ -28,7 +28,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
+      target: builder
     container_name: auth_api
     restart: unless-stopped
     depends_on:
@@ -42,6 +42,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
     ports:
       - '${PORT:-3000}:3000'
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run dev
+
     networks:
       - backend
     healthcheck:
