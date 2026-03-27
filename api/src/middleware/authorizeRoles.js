@@ -31,18 +31,26 @@ export const ROLES = Object.freeze({
   SECURITY_ANALYST: 'SECURITY_ANALYST',
 });
 
+const ROLE_HIERARCHY = {
+  ADMIN: ['ADMIN', 'SECURITY_ANALYST', 'USER'],
+  SECURITY_ANALYST: ['SECURITY_ANALYST', 'USER'],
+  USER: ['USER'],
+};
+
 /**
- * @param  {...string} allowedRoles  One or more values from ROLES.
+ * @param  {...string} allowedRolesInput  One or more values from ROLES.
  * @returns Express middleware function.
  */
-export const authorizeRoles = (...allowedRoles) => {
+export const authorizeRoles = (...allowedRolesInput) => {
   // ── Fail-fast: catch misconfigured routes at startup / first request ──
-  if (!allowedRoles.length) {
+  if (!allowedRolesInput.length) {
     throw new Error(
       '[authorizeRoles] No roles supplied. ' +
       'You must pass at least one role, e.g. authorizeRoles("ADMIN").'
     );
   }
+
+  const allowedRoles = allowedRolesInput.map(r => r.toUpperCase());
 
   const unknownRoles = allowedRoles.filter(
     (r) => !Object.values(ROLES).includes(r)
@@ -66,10 +74,8 @@ export const authorizeRoles = (...allowedRoles) => {
         );
       }
 
-      const userRole = req.user.role;
-
       // 2. Defensive: role field must be present on the user object
-      if (!userRole) {
+      if (!req.user.role && (!req.user.roles || !Array.isArray(req.user.roles) || !req.user.roles.length)) {
         throw new AppError(
           'User account has no role assigned',
           403,
@@ -77,11 +83,38 @@ export const authorizeRoles = (...allowedRoles) => {
         );
       }
 
-      // 3. Default-deny: check membership
-      if (!allowedRoles.includes(userRole)) {
+      // Multi-Role Support
+      const userRolesRaw = Array.isArray(req.user.roles)
+        ? req.user.roles
+        : [req.user.role];
+
+      // Normalize all roles
+      const userRoles = userRolesRaw.map(r => r?.toUpperCase()).filter(Boolean);
+
+      // Expand roles based on hierarchy
+      const expandedUserRoles = new Set();
+      userRoles.forEach(role => {
+        if (ROLE_HIERARCHY[role]) {
+          ROLE_HIERARCHY[role].forEach(r => expandedUserRoles.add(r));
+        } else {
+          expandedUserRoles.add(role);
+        }
+      });
+
+      // 3. Optional ABAC hook (future use)
+      if (req.resource && req.user) {
+        // Do not enforce anything yet
+        // Just leave this as an extension point
+      }
+
+      // 4. Default-deny: check membership
+      // Allow access if ANY role matches allowedRoles
+      const hasAccess = allowedRoles.some(allowedRole => expandedUserRoles.has(allowedRole));
+
+      if (!hasAccess) {
         logger.warn('RBAC_DENIED', {
           userId:       req.user.id,
-          userRole,
+          userRoles:    userRoles,
           allowedRoles,
           method:       req.method,
           path:         req.originalUrl,
@@ -91,13 +124,13 @@ export const authorizeRoles = (...allowedRoles) => {
 
         throw new AppError(
           `Access denied. Required role(s): ${allowedRoles.join(' | ')}. ` +
-          `Your role: ${userRole}.`,
+          `Your role(s): ${userRoles.join(', ')}.`,
           403,
           'FORBIDDEN'
         );
       }
 
-      // 4. Access granted — pass control to the next handler
+      // 5. Access granted — pass control to the next handler
       next();
 
     } catch (err) {

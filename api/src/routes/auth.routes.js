@@ -39,7 +39,7 @@ router.delete(
   authController.revokeSession
 );
 
-// Revoke all sessions (🔥 important)
+// Revoke all sessions 
 router.delete(
   '/sessions',
   authenticate,
