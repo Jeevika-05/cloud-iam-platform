@@ -2,7 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
+import { apiLimiter } from './middleware/rateLimiter.js';
 import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
@@ -13,7 +13,7 @@ import userRoutes from './routes/user.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import authenticate from './middleware/authenticate.js';
+import { authenticate } from './middleware/authenticate.js';
 import logger from './utils/logger.js';
 
 const app = express();
@@ -89,20 +89,7 @@ app.use(
 // ─────────────────────────────────────────────
 // RATE LIMITING
 // ─────────────────────────────────────────────
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 100 : 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
-});
-app.use(globalLimiter);
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  keyGenerator: (req) => `${req.ip}-${req.body?.email || 'anonymous'}`,
-});
+app.use(apiLimiter);
 
 // ─────────────────────────────────────────────
 // HEALTH CHECK
@@ -118,7 +105,7 @@ app.get('/health', (req, res) => {
 // ─────────────────────────────────────────────
 // ROUTES
 // ─────────────────────────────────────────────
-app.use('/api/v1/auth', authLimiter, authRoutes);
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', authenticate, userRoutes);
 app.use('/api/v1/analytics', authenticate, analyticsRoutes);
 

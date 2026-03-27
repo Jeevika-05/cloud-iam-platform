@@ -45,7 +45,7 @@ export const registerRules = [
     .trim()
     .notEmpty().withMessage('Name is required')
     .isLength({ min: 2, max: 50 }).withMessage('Name must be between 2 and 50 characters')
-    .escape(), // safe for display fields
+    .escape(),
 
   body('email')
     .trim()
@@ -64,7 +64,7 @@ export const registerRules = [
       'Password must contain uppercase, lowercase, number, and special character'
     ),
 
-  // 🔐 Prevent privilege escalation
+  // 🔐 Prevent privilege escalation on registration
   body('role')
     .optional()
     .custom(() => {
@@ -89,10 +89,11 @@ export const loginRules = [
 
 // ─────────────────────────────────────────────
 // UPDATE ROLE RULES (ADMIN ONLY)
+// Updated to accept SECURITY_ANALYST instead of ANALYST
 // ─────────────────────────────────────────────
 export const updateRoleRules = [
   body('role')
     .notEmpty().withMessage('Role is required')
-    .isIn(['USER', 'ADMIN', 'ANALYST'])
-    .withMessage('Invalid role provided'),
+    .isIn(['USER', 'ADMIN', 'SECURITY_ANALYST'])   // ← updated
+    .withMessage('Invalid role. Must be USER, ADMIN, or SECURITY_ANALYST'),
 ];

@@ -84,10 +84,6 @@ export const refresh = async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken;
 
-    if (!refreshToken) {
-      throw new Error('Refresh token missing');
-    }
-
     const tokens = await authService.refresh(refreshToken, {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
@@ -160,7 +156,7 @@ export const getSessions = async (req, res, next) => {
 // ─────────────────────────────────────────────
 export const getCurrentSession = async (req, res, next) => {
   try {
-    const session = await authService.getCurrentSession(req.user.jti);
+    const session = await authService.getCurrentSession(req.auth.jti);
 
     return successResponse(res, { session }, 'Current session retrieved');
   } catch (err) {
@@ -178,6 +174,22 @@ export const revokeSession = async (req, res, next) => {
     await authService.revokeSession(id, req.user.id);
 
     return successResponse(res, {}, 'Session revoked');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─────────────────────────────────────────────
+// REVOKE ALL SESSIONS
+// ─────────────────────────────────────────────
+export const revokeAllSessions = async (req, res, next) => {
+  try {
+    await authService.revokeAllSessions(req.user.id);
+
+    // Clear cookie for security
+    res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
+
+    return successResponse(res, {}, 'All sessions revoked');
   } catch (err) {
     next(err);
   }

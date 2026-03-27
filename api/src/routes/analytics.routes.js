@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import authenticate from '../middleware/authenticate.js';
-import authorize from '../middleware/authorize.js';
+import { authenticate } from '../middleware/authenticate.js';
+import { authorizeRoles } from '../middleware/authorizeRoles.js';   // ← NEW
 import prisma from '../config/database.js';
 import { successResponse } from '../utils/response.js';
 import logger from '../utils/logger.js';
@@ -8,10 +8,10 @@ import logger from '../utils/logger.js';
 const router = Router();
 
 // ─────────────────────────────────────────────
-// Apply security middleware
+// Apply security middleware to every analytics route
 // ─────────────────────────────────────────────
 router.use(authenticate);
-router.use(authorize('ADMIN', 'ANALYST'));
+router.use(authorizeRoles('ADMIN', 'SECURITY_ANALYST'));
 
 // ─────────────────────────────────────────────
 // GET /summary
@@ -27,18 +27,16 @@ router.get('/summary', async (req, res, next) => {
       }),
     ]);
 
-    // Transform role data
     const roles = roleBreakdown.reduce((acc, item) => {
       acc[item.role] = item._count.role;
       return acc;
     }, {});
 
-    // 🔐 Audit log (important for your project)
     logger.info('ANALYTICS_ACCESSED', {
       userId: req.user.id,
-      role: req.user.role,
-      ip: req.ip,
-      path: req.originalUrl,
+      role:   req.user.role,
+      ip:     req.ip,
+      path:   req.originalUrl,
     });
 
     return successResponse(

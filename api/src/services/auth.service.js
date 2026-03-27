@@ -82,6 +82,10 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
 // REFRESH TOKEN (ROTATION)
 // ─────────────────────────────────────────────
 export const refresh = async (token, { ipAddress, userAgent }) => {
+  if (!token) {
+    throw new AppError('Refresh token missing', 401, 'REFRESH_TOKEN_MISSING');
+  }
+
   const decoded = verifyRefreshToken(token);
 
   if (!decoded?.jti) {
@@ -128,6 +132,10 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
 // LOGOUT (CURRENT SESSION)
 // ─────────────────────────────────────────────
 export const logout = async (token) => {
+  if (!token) {
+    throw new AppError('Token missing', 401, 'LOGOUT_FAILED');
+  }
+
   const decoded = verifyRefreshToken(token);
 
   if (!decoded?.jti) {
@@ -256,15 +264,15 @@ const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
       where: { id: sessions[0].id },
     });
   }
-
+  const jti = crypto.randomUUID();
   const payload = {
     sub: user.id,
     email: user.email,
     role: user.role,
+    jti:jti
   };
 
-  const jti = crypto.randomUUID();
-
+ 
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload, jti);
 

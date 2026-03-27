@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import * as authController from '../controllers/auth.controller.js';
-import authenticate from '../middleware/authenticate.js';
-import { validate, registerRules, loginRules, sessionIdParamRule } from '../middleware/validate.js';
+import { authenticate } from '../middleware/authenticate.js';
 import { authLimiter } from '../middleware/rateLimiter.js';
+import { validate, registerRules, loginRules, sessionIdParamRule } from '../middleware/validate.js';
 
 const router = Router();
 
@@ -14,7 +14,7 @@ router.post('/register', authLimiter, registerRules, validate, authController.re
 router.post('/login', authLimiter, loginRules, validate, authController.login);
 
 // Cookie-based refresh
-router.post('/refresh', authLimiter, authController.refresh);
+router.post('/refresh', authController.refresh);
 
 // ─────────────────────────────────────────────
 // Protected routes

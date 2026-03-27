@@ -1,21 +1,15 @@
 import * as userService from '../services/user.service.js';
 import { successResponse } from '../utils/response.js';
-import AppError from '../utils/AppError.js';
 
-const ALLOWED_ROLES = ['USER', 'ADMIN', 'ANALYST'];
 
 // ─────────────────────────────────────────────
 // GET ALL USERS
 // ─────────────────────────────────────────────
 export const getAllUsers = async (req, res, next) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const page  = Math.max(1, parseInt(req.query.page)  || 1);
     const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 100);
-    const role = req.query.role;
-
-    if (role && !ALLOWED_ROLES.includes(role)) {
-      throw new AppError('Invalid role filter', 400, 'VALIDATION_ERROR');
-    }
+    const role  = req.query.role;
 
     const result = await userService.getAllUsers({ page, limit, role });
 
@@ -47,14 +41,10 @@ export const updateUserRole = async (req, res, next) => {
   try {
     const { role } = req.body;
 
-    if (!ALLOWED_ROLES.includes(role)) {
-      throw new AppError('Invalid role', 400, 'VALIDATION_ERROR');
-    }
-
     const user = await userService.updateUserRole(
       req.params.id,
       role,
-      req.user // 🔐 pass current user for security checks
+      req.user   // 🔐 passed for service-layer security checks
     );
 
     return successResponse(res, { user }, 'User role updated');
@@ -71,11 +61,7 @@ export const deleteUser = async (req, res, next) => {
   try {
     const targetUserId = req.params.id;
 
-    if (targetUserId === req.user.id) {
-      throw new AppError('Cannot delete your own account', 403, 'SELF_DELETE');
-    }
-
-    await userService.deleteUser(targetUserId, req.user); // 🔐 pass current user
+    await userService.deleteUser(targetUserId, req.user);
 
     return successResponse(res, {}, 'User deleted');
 

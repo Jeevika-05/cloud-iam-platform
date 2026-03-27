@@ -26,7 +26,8 @@ export const generateAccessToken = (payload) => {
       sub: payload.sub,
       email: payload.email,
       role: payload.role,
-      type: 'access', // 🔥 prevent token confusion
+      type: 'access',
+      jti: payload.jti, // include session id for potential revocation
     },
     ACCESS_SECRET,
     {

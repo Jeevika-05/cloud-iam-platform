@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import * as userController from '../controllers/user.controller.js';
-import authenticate from '../middleware/authenticate.js';
-import authorize from '../middleware/authorize.js';
+import { authenticate } from '../middleware/authenticate.js';
+import { authorizeRoles } from '../middleware/authorizeRoles.js';   // ← NEW
 import {
   userIdParamRule,
   updateRoleRules,
   validate
 } from '../middleware/validate.js';
-import { apiLimiter } from '../middleware/rateLimiter.js';
 
 const router = Router();
 
@@ -15,20 +14,20 @@ const router = Router();
 // Global middlewares
 // ─────────────────────────────────────────────
 router.use(authenticate);
-router.use(apiLimiter);
+
 
 // ─────────────────────────────────────────────
-// ADMIN: full user management
+// ADMIN only — full user management
 // ─────────────────────────────────────────────
 router.get(
   '/',
-  authorize('ADMIN'),
+  authorizeRoles('ADMIN'),
   userController.getAllUsers
 );
 
 router.get(
   '/:id',
-  authorize('ADMIN', 'ANALYST'),
+  authorizeRoles('ADMIN', 'SECURITY_ANALYST'),  // analysts can read individual users
   userIdParamRule,
   validate,
   userController.getUserById
@@ -36,7 +35,7 @@ router.get(
 
 router.patch(
   '/:id/role',
-  authorize('ADMIN'),
+  authorizeRoles('ADMIN'),
   userIdParamRule,
   updateRoleRules,
   validate,
@@ -45,7 +44,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  authorize('ADMIN'),
+  authorizeRoles('ADMIN'),
   userIdParamRule,
   validate,
   userController.deleteUser

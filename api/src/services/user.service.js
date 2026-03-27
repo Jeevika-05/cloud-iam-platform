@@ -3,7 +3,7 @@ import AppError from '../utils/AppError.js';
 import logger from '../utils/logger.js';
 
 // Allowed roles (prevent invalid role injection)
-const ALLOWED_ROLES = ['USER', 'ADMIN', 'ANALYST'];
+const ALLOWED_ROLES = ['USER', 'ADMIN', 'SECURITY_ANALYST'];
 
 // ───────────────────────────────────────────────────────────
 // GET ALL USERS (PAGINATED)
@@ -15,7 +15,11 @@ export const getAllUsers = async ({ page = 1, limit = 20, role } = {}) => {
 
   const skip = (page - 1) * limit;
 
-  const where = role && ALLOWED_ROLES.includes(role) ? { role } : {};
+  if (role && !ALLOWED_ROLES.includes(role)) {
+    throw new AppError('Invalid role filter', 400, 'VALIDATION_ERROR');
+  }
+
+  const where = role ? { role } : {};
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({

@@ -6,31 +6,31 @@ const prisma = new PrismaClient();
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
 
-// 🔐 Stronger: do NOT hardcode passwords in production
+// 🔐 Do NOT hardcode passwords in production — use env vars
 const DEFAULT_PASSWORDS = {
-  ADMIN: process.env.SEED_ADMIN_PASSWORD || 'Admin@1234!',
-  ANALYST: process.env.SEED_ANALYST_PASSWORD || 'Analyst@1234!',
-  USER: process.env.SEED_USER_PASSWORD || 'User@1234!',
+  ADMIN:            process.env.SEED_ADMIN_PASSWORD    || 'Admin@1234!',
+  SECURITY_ANALYST: process.env.SEED_ANALYST_PASSWORD  || 'Analyst@1234!',
+  USER:             process.env.SEED_USER_PASSWORD      || 'User@1234!',
 };
 
 async function main() {
   const users = [
     {
-      name: 'Super Admin',
-      email: 'admin@example.com',
-      role: 'ADMIN',
+      name:     'Super Admin',
+      email:    'admin@example.com',
+      role:     'ADMIN',
       password: DEFAULT_PASSWORDS.ADMIN,
     },
     {
-      name: 'Analyst User',
-      email: 'analyst@example.com',
-      role: 'ANALYST',
-      password: DEFAULT_PASSWORDS.ANALYST,
+      name:     'Security Analyst',
+      email:    'analyst@example.com',
+      role:     'SECURITY_ANALYST',             // ← updated
+      password: DEFAULT_PASSWORDS.SECURITY_ANALYST,
     },
     {
-      name: 'Regular User',
-      email: 'user@example.com',
-      role: 'USER',
+      name:     'Regular User',
+      email:    'user@example.com',
+      role:     'USER',
       password: DEFAULT_PASSWORDS.USER,
     },
   ];
@@ -39,13 +39,13 @@ async function main() {
     const hashedPassword = await bcrypt.hash(userData.password, BCRYPT_ROUNDS);
 
     const user = await prisma.user.upsert({
-      where: { email: userData.email.toLowerCase().trim() },
-      update: {}, // do not overwrite existing users
+      where:  { email: userData.email.toLowerCase().trim() },
+      update: {},   // do not overwrite existing users
       create: {
-        name: userData.name,
-        email: userData.email.toLowerCase().trim(),
+        name:     userData.name,
+        email:    userData.email.toLowerCase().trim(),
         password: hashedPassword,
-        role: userData.role,
+        role:     userData.role,
       },
     });
 
@@ -57,7 +57,7 @@ main()
   .catch((e) => {
     console.error('❌ Seed failed:', {
       message: e.message,
-      stack: e.stack,
+      stack:   e.stack,
     });
     process.exit(1);
   })

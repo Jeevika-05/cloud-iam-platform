@@ -40,8 +40,14 @@ model Session {
   @@index([userId])
   @@map("sessions")
 }
+
+// ─────────────────────────────────────────────
+// RBAC Role Enum
+// SECURITY_ANALYST replaces ANALYST.
+// Run the migration SQL to rename existing rows.
+// ─────────────────────────────────────────────
 enum Role {
   USER
   ADMIN
-  ANALYST
+  SECURITY_ANALYST
 }

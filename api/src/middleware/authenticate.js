@@ -3,7 +3,7 @@ import AppError from '../utils/AppError.js';
 import prisma from '../config/database.js';
 import logger from '../utils/logger.js';
 
-const authenticate = async (req, res, next) => {
+export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -74,5 +74,3 @@ const authenticate = async (req, res, next) => {
     next(err);
   }
 };
-
-export default authenticate;
