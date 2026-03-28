@@ -32,12 +32,24 @@ export const authenticate = async (req, res, next) => {
     // ─────────────────────────────────────────────
     // 3. Validate payload (defensive check)
     // ─────────────────────────────────────────────
-    if (!decoded.sub) {
+    if (!decoded.sub || !decoded.jti) {
       throw new AppError('Invalid token payload', 401, 'TOKEN_INVALID');
     }
 
     // ─────────────────────────────────────────────
-    // 4. Check user still exists & Token Version
+    // 4. Session Revocation Defense
+    // ─────────────────────────────────────────────
+    const session = await prisma.session.findUnique({
+      where: { id: decoded.jti },
+      select: { revoked: true }
+    });
+
+    if (!session || session.revoked) {
+      throw new AppError('Session invalidated or compromised', 401, 'SESSION_REVOKED');
+    }
+
+    // ─────────────────────────────────────────────
+    // 5. Check user still exists & Token Version
     // ─────────────────────────────────────────────
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },

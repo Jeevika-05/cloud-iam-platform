@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import AppError from './AppError.js';
 
 // ─────────────────────────────────────────────
@@ -12,6 +13,7 @@ const ACCESS_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
 const ACCESS_EXPIRES = process.env.JWT_EXPIRES_IN || '15m';
+const TEMP_EXPIRES = '5m';
 const REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
 const ISSUER = 'cloud-iam-platform';
@@ -55,6 +57,27 @@ export const generateRefreshToken = (payload, jti) => {
       audience: AUDIENCE,
       algorithm: 'HS256',
       jwtid: jti, // session id
+    }
+  );
+};
+
+// ─────────────────────────────────────────────
+// GENERATE TEMP TOKEN (FOR MFA)
+// ─────────────────────────────────────────────
+export const generateTempToken = (payload) => {
+  const jti = crypto.randomUUID();
+  return jwt.sign(
+    {
+      sub: payload.sub,
+      type: 'temp',
+      jti,
+    },
+    ACCESS_SECRET,
+    {
+      expiresIn: TEMP_EXPIRES,
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      algorithm: 'HS256',
     }
   );
 };
@@ -106,5 +129,30 @@ export const verifyRefreshToken = (token) => {
       throw new AppError('Refresh token expired', 401, 'REFRESH_TOKEN_EXPIRED');
     }
     throw new AppError('Invalid refresh token', 401, 'REFRESH_TOKEN_INVALID');
+  }
+};
+
+// ─────────────────────────────────────────────
+// VERIFY TEMP TOKEN
+// ─────────────────────────────────────────────
+export const verifyTempToken = (token) => {
+  try {
+    const decoded = jwt.verify(token, ACCESS_SECRET, {
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      algorithms: ['HS256'],
+      clockTolerance: 5,
+    });
+
+    if (!decoded.sub || decoded.type !== 'temp' || !decoded.jti) {
+      throw new AppError('Invalid temp token or missing JTI', 401, 'TOKEN_INVALID');
+    }
+
+    return decoded;
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      throw new AppError('Temporary token expired', 401, 'TOKEN_EXPIRED');
+    }
+    throw new AppError('Invalid temp token', 401, 'TOKEN_INVALID');
   }
 };

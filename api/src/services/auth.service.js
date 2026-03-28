@@ -8,7 +8,10 @@ import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
+  generateTempToken,
+  verifyTempToken
 } from '../utils/jwt.js';
+import { logSecurityEvent } from './audit.service.js';
 import { SECURITY_CONFIG } from '../config/security.js';
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
@@ -115,10 +118,143 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
 
   const { password: _, ...safeUser } = user;
 
-  const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
+  if (user.totpEnabled) {
+    const tempToken = generateTempToken(user);
+    return { status: "MFA_REQUIRED", tempToken };
+  }
 
-  logger.info('LOGIN_SUCCESS', { userId: user.id, ip: ipAddress });
+  const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: false });
 
+  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'SUCCESS', ip: ipAddress, userAgent });
+
+  return { user: safeUser, ...tokens };
+};
+
+// ─────────────────────────────────────────────
+// GOOGLE OAUTH LOGIN
+// ─────────────────────────────────────────────
+export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userAgent }) => {
+  const normalizedEmail = email.toLowerCase().trim();
+  let user = await prisma.user.findUnique({ where: { googleId } });
+
+  if (!user) {
+    // Attempt fallback to link existing internal account
+    user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (user) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { googleId, provider: 'google' }
+      });
+    } else {
+      // Provision net-new user
+      user = await prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          name,
+          googleId,
+          provider: 'google',
+          role: 'USER',
+        }
+      });
+    }
+  }
+
+  // Re-use core IAM lockout protection identically
+  if (user.lockUntil && user.lockUntil > new Date()) {
+    throw new AppError('Account temporarily locked', 403, 'ACCOUNT_LOCKED');
+  }
+
+  // Erase latent attempt tracking if recovering securely via OIDC
+  if (user.failedLoginAttempts > 0 || user.lockUntil) {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockUntil: null }
+    });
+  }
+
+  const { password: _, ...safeUser } = user;
+
+  // Re-use core IAM MFA tracking natively (DO NOT BYPASS)
+  if (user.totpEnabled) {
+    const { generateTempToken } = await import('../utils/jwt.js');
+    const tempToken = generateTempToken(user);
+    return { status: "MFA_REQUIRED", tempToken };
+  }
+
+  // Issue standard tokens
+  const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: false });
+  
+  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'SUCCESS_GOOGLE', ip: ipAddress, userAgent });
+
+  return { user: safeUser, ...tokens };
+};
+
+// ─────────────────────────────────────────────
+// VALIDATE MFA LOGIN
+// ─────────────────────────────────────────────
+export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent }) => {
+  const decoded = verifyTempToken(tempToken);
+
+  const user = await prisma.user.findUnique({ where: { id: decoded.sub } });
+  
+  if (!user || (user.lockUntil && user.lockUntil > new Date()) || !user.totpEnabled) {
+    throw new AppError('Invalid MFA login attempt', 403, 'FORBIDDEN');
+  }
+
+  // PATCH 1: Fix Race Condition in Temp Token Replay Protection (ATOMIC UPDATE)
+  const updated = await prisma.user.updateMany({
+    where: {
+      id: user.id,
+      OR: [
+        { lastTempTokenJti: null },
+        { lastTempTokenJti: { not: decoded.jti } }
+      ]
+    },
+    data: {
+      lastTempTokenJti: decoded.jti,
+      // PATCH 4: Add Timestamp Tracking
+      lastTempTokenUsedAt: new Date()
+    }
+  });
+
+  if (updated.count === 0) {
+    throw new AppError("Temp token already used", 401, "TOKEN_REUSE_DETECTED");
+  }
+
+  // 🛡 Patch 2: Decrypt TOTP Secret
+  const { decrypt } = await import('../utils/cipher.js');
+  
+  if (user.totpSecret && !user.totpSecretKeyVersion) {
+    throw new AppError(
+      'Invalid encryption state',
+      500,
+      'CRYPTO_STATE_INVALID'
+    );
+  }
+
+  if (!user.totpSecretKeyVersion) {
+    throw new AppError('MFA key version missing', 500, 'MFA_KEY_ERROR');
+  }
+  const decryptedSecret = decrypt(user.totpSecret, user.totpSecretKeyVersion);
+
+  const speakeasy = (await import('speakeasy')).default;
+  const verified = speakeasy.totp.verify({
+    secret: decryptedSecret,
+    encoding: 'base32',
+    token: code,
+    window: 1,
+  });
+
+  if (!verified) {
+    await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'MFA_FAILED', ip: ipAddress, userAgent });
+    throw new AppError('Invalid MFA code', 400, 'INVALID_MFA_CODE');
+  }
+
+  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'MFA_SUCCESS', ip: ipAddress, userAgent });
+
+  const { password: _, ...safeUser } = user;
+  const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: true });
+  
   return { user: safeUser, ...tokens };
 };
 
@@ -193,16 +329,26 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     }
   }
 
-  // 🔐 OPTIONAL: Device/IP check (log suspicious activity)
+  // 🔐 Active Session Defense
   if (
     (session.ipAddress && session.ipAddress !== ipAddress) ||
     (session.userAgent && session.userAgent !== userAgent)
   ) {
-    logger.warn('SUSPICIOUS_SESSION_USE', {
-      userId: session.userId,
-      originalIp: session.ipAddress,
-      currentIp: ipAddress,
+    await prisma.session.update({
+      where: { id: decoded.jti },
+      data: { revoked: true }
     });
+    
+    await logSecurityEvent({
+      userId: session.userId,
+      action: 'SESSION_REVOKED',
+      status: 'SUSPICIOUS_SESSION_DETECTED',
+      ip: ipAddress,
+      userAgent
+    });
+    
+    logger.warn('SUSPICIOUS_SESSION_REVOKED', { userId: session.userId, ipAddress, userAgent });
+    throw new AppError('Session anomalously accessed and revoked', 403, 'SESSION_COMPROMISED');
   }
 
   // 🔄 ROTATION: mark old session revoked instead of deleting
@@ -349,7 +495,7 @@ export const revokeAllSessions = async (userId) => {
 // ─────────────────────────────────────────────
 // INTERNAL: ISSUE TOKENS
 // ─────────────────────────────────────────────
-const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
+const issueTokens = async (user, { ipAddress, userAgent, mfaVerified = false } = {}) => {
   // 🔒 Limit active sessions
   const sessions = await prisma.session.findMany({
     where: { userId: user.id, revoked: false },
@@ -388,7 +534,8 @@ const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
       userAgent: userAgent || null,
       expiresAt,
       refreshTokenHash,
-      revoked: false
+      revoked: false,
+      mfaVerified
     },
   });
 

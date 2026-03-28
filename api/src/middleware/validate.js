@@ -50,6 +50,7 @@ export const registerRules = [
   body('email')
     .trim()
     .notEmpty().withMessage('Email is required')
+    .isLength({ max: 255 }).withMessage('Email limits exceeded')
     .isEmail().withMessage('Must be a valid email address')
     .normalizeEmail({
       gmail_remove_dots: false,
@@ -58,7 +59,7 @@ export const registerRules = [
 
   body('password')
     .notEmpty().withMessage('Password is required')
-    .isLength({ min: 10 }).withMessage('Password must be at least 10 characters')
+    .isLength({ min: 10, max: 128 }).withMessage('Password must be between 10 and 128 characters')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_])/)
     .withMessage(
       'Password must contain uppercase, lowercase, number, and special character'
@@ -79,12 +80,14 @@ export const loginRules = [
   body('email')
     .trim()
     .notEmpty().withMessage('Email is required')
+    .isLength({ max: 255 }).withMessage('Email limits exceeded')
     .isEmail().withMessage('Must be a valid email address')
     .normalizeEmail()
     .customSanitizer((value) => value.toLowerCase()),
 
   body('password')
-    .notEmpty().withMessage('Password is required'),
+    .notEmpty().withMessage('Password is required')
+    .isLength({ max: 128 }).withMessage('Invalid password structure'),
 ];
 
 // ─────────────────────────────────────────────

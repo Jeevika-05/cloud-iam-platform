@@ -1,5 +1,22 @@
 import express from 'express';
 import helmet from 'helmet';
+
+// PATCH 2: Validate Key Version at Application Startup
+const version = Number(process.env.ACTIVE_KEY_VERSION);
+
+if (!version) {
+  throw new Error("ACTIVE_KEY_VERSION missing or invalid");
+}
+
+const key = process.env[`ENCRYPTION_KEY_V${version}`];
+
+if (!key) {
+  throw new Error(`ENCRYPTION_KEY_V${version} is missing`);
+}
+
+if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
+  throw new Error(`Invalid ENCRYPTION_KEY_V${version}`);
+}
 import cors from 'cors';
 import morgan from 'morgan';
 import { apiLimiter } from './middleware/rateLimiter.js';
@@ -11,6 +28,7 @@ import { randomUUID } from 'crypto';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
+import mfaRoutes from './routes/mfa.routes.js';
 
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/authenticate.js';
@@ -106,6 +124,7 @@ app.get('/health', (req, res) => {
 // ROUTES
 // ─────────────────────────────────────────────
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/mfa', mfaRoutes);
 app.use('/api/v1/users', authenticate, userRoutes);
 app.use('/api/v1/analytics', authenticate, analyticsRoutes);
 

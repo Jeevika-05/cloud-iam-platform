@@ -12,16 +12,29 @@ datasource db {
 model User {
   id        String    @id @default(uuid())
   email     String    @unique
-  password  String
+  password  String? // Optional for OAuth users
   name      String
   role      Role      @default(USER)
+  
+  googleId  String?   @unique
+  provider  String?   @default("local")
   sessions  Session[]
+  auditLogs AuditLog[] 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   failedLoginAttempts   Int      @default(0)
   lockUntil             DateTime?
+  lastTempTokenJti String?
 
   tokenVersion          Int      @default(0)
+  totpSecret   String?
+  totpEnabled  Boolean @default(false)
+  
+  // PATCH 4: Add Timestamp Tracking
+  lastTempTokenUsedAt DateTime?
+  
+  // PATCH 6: Lightweight Key Rotation Support
+  totpSecretKeyVersion Int?
   @@map("users")
 }
 
@@ -38,6 +51,7 @@ model Session {
   expiresAt  DateTime
   lastUsedAt DateTime?
   revoked    Boolean  @default(false)
+  mfaVerified Boolean @default(false)
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -46,6 +60,24 @@ model Session {
   @@map("sessions")
 }
 
+model AuditLog {
+  id        String   @id @default(uuid())
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action    String
+  status    String
+
+  ip        String?
+  userAgent String?
+
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
 // ─────────────────────────────────────────────
 // RBAC Role Enum
 // SECURITY_ANALYST replaces ANALYST.

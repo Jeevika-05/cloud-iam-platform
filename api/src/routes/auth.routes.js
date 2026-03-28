@@ -11,7 +11,12 @@ const router = Router();
 // ─────────────────────────────────────────────
 router.post('/register', authLimiter, registerRules, validate, authController.register);
 
+router.get('/google', authController.googleAuth);
+router.get('/google/callback', authController.googleCallback);
+
 router.post('/login', authLimiter, loginRules, validate, authController.login);
+
+router.post('/mfa/validate-login', authLimiter, authController.validateMfaLogin);
 
 // Cookie-based refresh
 router.post('/refresh', authController.refresh);

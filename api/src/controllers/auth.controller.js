@@ -1,4 +1,5 @@
 import * as authService from '../services/auth.service.js';
+import * as googleAuthService from '../services/googleAuth.service.js';
 import { successResponse } from '../utils/response.js';
 
 // Cookie config (reuse everywhere)
@@ -7,6 +8,49 @@ const REFRESH_COOKIE_OPTIONS = {
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   path: '/api/v1/auth', // restrict cookie scope
+};
+
+// ─────────────────────────────────────────────
+// GOOGLE OAUTH
+// ─────────────────────────────────────────────
+export const googleAuth = (req, res) => {
+  res.redirect(googleAuthService.getAuthUrl());
+};
+
+export const googleCallback = async (req, res, next) => {
+  try {
+    const { code } = req.query;
+    if (!code) {
+      // In case they pass purely the ID token natively from a frontend SDK, support it natively
+      const idTokenHeader = req.headers['x-google-id-token'];
+      if (!idTokenHeader) throw new Error('Authorization code missing');
+      req.query.idToken = idTokenHeader; // Forward for explicit manual flow handling below
+    }
+
+    const idToken = req.query.idToken || (await googleAuthService.exchangeCodeForIdToken(code));
+    const { googleId, email, name } = await googleAuthService.verifyGoogleIdToken(idToken);
+
+    const result = await authService.handleGoogleAuth({
+      googleId,
+      email,
+      name,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    if (result.status === 'MFA_REQUIRED') {
+      return successResponse(res, result, 'MFA token required');
+    }
+
+    res.cookie('refreshToken', result.refreshToken, {
+      ...REFRESH_COOKIE_OPTIONS,
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+
+    return successResponse(res, { accessToken: result.accessToken, user: result.user }, 'Google login successful');
+  } catch (err) {
+    next(err);
+  }
 };
 
 // ─────────────────────────────────────────────
@@ -54,6 +98,43 @@ export const login = async (req, res, next) => {
     const result = await authService.login({
       email,
       password,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    if (result.status === 'MFA_REQUIRED') {
+      return successResponse(res, result, 'MFA token required');
+    }
+
+    // Set refresh token in cookie
+    res.cookie('refreshToken', result.refreshToken, {
+      ...REFRESH_COOKIE_OPTIONS,
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+
+    return successResponse(
+      res,
+      {
+        accessToken: result.accessToken,
+        user: result.user,
+      },
+      'Login successful'
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─────────────────────────────────────────────
+// VALIDATE MFA LOGIN
+// ─────────────────────────────────────────────
+export const validateMfaLogin = async (req, res, next) => {
+  try {
+    const { code, tempToken } = req.body;
+
+    const result = await authService.validateMfaLogin({
+      code,
+      tempToken,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });

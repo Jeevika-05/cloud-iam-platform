@@ -1,9 +1,24 @@
 export const policies = [
-  // 🔥 ADMIN: full access
+  // 🔥 ADMIN: full access with Strict Network Bounds
   {
     roles: ['ADMIN'],
     actions: ['*'],
     resources: ['*'],
+    condition: ({ context }) => {
+      const TRUSTED_IP = process.env.TRUSTED_IP || '::1'; // Mock default
+      return context.ip === TRUSTED_IP || context.ip === '127.0.0.1';
+    }
+  },
+
+  // 🔒 SENSITIVE ACTION: Requires fully verified MFA lifecycle
+  {
+    roles: ['ADMIN', 'SECURITY_ANALYST', 'USER'],
+    actions: ['modify_security', 'billing', 'delete'],
+    resources: ['sensitive'],
+    condition: ({ user, context }) => {
+      // Must have enabled TOTP and completed the current session's MFA challenge successfully
+      return user.totpEnabled === true && context.session?.mfaVerified === true;
+    }
   },
 
   // 👤 USER: read/update only own profile
