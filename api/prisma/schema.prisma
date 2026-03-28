@@ -18,7 +18,10 @@ model User {
   sessions  Session[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  failedLoginAttempts   Int      @default(0)
+  lockUntil             DateTime?
 
+  tokenVersion          Int      @default(0)
   @@map("users")
 }
 
@@ -26,6 +29,8 @@ model Session {
   id         String   @id
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshTokenHash String
 
   userAgent  String?
   ipAddress  String?

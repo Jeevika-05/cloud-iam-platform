@@ -9,6 +9,7 @@ import {
   generateRefreshToken,
   verifyRefreshToken,
 } from '../utils/jwt.js';
+import { SECURITY_CONFIG } from '../config/security.js';
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
 const MAX_SESSIONS = 5; // optional limit
@@ -60,20 +61,63 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
   // Prevent user enumeration
   if (!user) {
     await bcrypt.compare(password, '$2b$12$invalidhashplaceholderXXXXXXXXXXXXXXXXXXXXXXXXXX');
+    logger.warn('LOGIN_FAILED', { email: normalizedEmail, ip: ipAddress });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
+  }
+
+  // Account Lockout Protection
+  if (user.lockUntil && user.lockUntil > new Date()) {
+    logger.warn('ACCOUNT_LOCKED_ATTEMPT', { userId: user.id, ip: ipAddress });
+    throw new AppError(
+  'Account temporarily locked due to multiple failed attempts',
+  403,
+  'ACCOUNT_LOCKED'
+);
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
 
   if (!isMatch) {
+    // Increment failedLoginAttempts
+    const attempts = (user.failedLoginAttempts || 0) + 1;
+    let lockUntil = user.lockUntil;
+
+    if (attempts >= SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS) {
+      lockUntil = new Date(Date.now() + SECURITY_CONFIG.LOCK_TIME);
+
+      await prisma.session.updateMany({
+        where: { userId: user.id },
+        data: { revoked: true }
+      });
+
+      logger.warn('ALL_SESSIONS_REVOKED_ON_LOCK', {
+        userId: user.id
+      });
+      logger.warn('ACCOUNT_LOCKED', { userId: user.id, ip: ipAddress });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: attempts, lockUntil }
+    });
+
+    logger.warn('LOGIN_FAILED', { userId: user.id, ip: ipAddress });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
+  }
+
+  // Reset counters on successful login
+  if (user.failedLoginAttempts > 0 || user.lockUntil) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockUntil: null }
+    });
   }
 
   const { password: _, ...safeUser } = user;
 
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
 
-  logger.info('LOGIN_SUCCESS', { userId: user.id });
+  logger.info('LOGIN_SUCCESS', { userId: user.id, ip: ipAddress });
 
   return { user: safeUser, ...tokens };
 };
@@ -86,9 +130,19 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     throw new AppError('Refresh token missing', 401, 'REFRESH_TOKEN_MISSING');
   }
 
-  const decoded = verifyRefreshToken(token);
+  let decoded;
+  try {
+    decoded = verifyRefreshToken(token);
+  } catch (err) {
+    // Basic verify failed, but could be reuse/compromise attempts
+    const attemptDecoded = jwt.decode(token);
+    if (attemptDecoded?.sub) {
+       logger.warn('TOKEN_REUSE_DETECTED_INVALID_SIG', { userId: attemptDecoded.sub, ipAddress });
+    }
+    throw new AppError('Invalid refresh token', 401, 'REFRESH_TOKEN_INVALID');
+  }
 
-  if (!decoded?.jti) {
+  if (!decoded?.jti || !decoded?.sub) {
     throw new AppError('Invalid refresh token', 401, 'REFRESH_TOKEN_INVALID');
   }
 
@@ -97,9 +151,46 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     include: { user: true },
   });
 
-  // 🔥 CRITICAL VALIDATION
-  if (!session || session.expiresAt < new Date()) {
+  // 🔥 CRITICAL VALIDATION & Replay Attack Detection
+  if (!session || session.revoked) {
+    logger.warn('TOKEN_REUSE_DETECTED', { userId: decoded.sub, jti: decoded.jti, ipAddress });
+    await prisma.session.updateMany({
+      where: { userId: decoded.sub },
+      data: { revoked: true }
+    });
+    throw new AppError('Session compromised', 401, 'SESSION_COMPROMISED');
+  }
+
+  if (session.expiresAt < new Date()) {
     throw new AppError('Session expired or invalid', 401, 'REFRESH_TOKEN_INVALID');
+  }
+
+  const user = session.user;
+
+  if (user.lockUntil && user.lockUntil > new Date()) {
+    logger.warn('REFRESH_BLOCKED_ACCOUNT_LOCKED', {
+      userId: user.id,
+      ipAddress
+    });
+
+    throw new AppError(
+      'Account temporarily locked',
+      403,
+      'ACCOUNT_LOCKED'
+    );
+  }
+
+  // Validate hashed token
+  if (session.refreshTokenHash) {
+    const isTokenMatch = await bcrypt.compare(token, session.refreshTokenHash);
+    if (!isTokenMatch) {
+      logger.warn('TOKEN_REUSE_DETECTED', { userId: session.userId, jti: decoded.jti, ipAddress });
+      await prisma.session.updateMany({
+        where: { userId: session.userId },
+        data: { revoked: true }
+      });
+      throw new AppError('Session compromised', 401, 'SESSION_COMPROMISED');
+    }
   }
 
   // 🔐 OPTIONAL: Device/IP check (log suspicious activity)
@@ -114,16 +205,17 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     });
   }
 
-  // 🔄 ROTATION: delete old session
-  await prisma.session.delete({
+  // 🔄 ROTATION: mark old session revoked instead of deleting
+  await prisma.session.update({
     where: { id: decoded.jti },
+    data: { revoked: true }
   });
 
   const { password: _, ...safeUser } = session.user;
 
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
 
-  logger.info('TOKEN_REFRESH', { userId: safeUser.id });
+  logger.info('TOKEN_ROTATED', { userId: safeUser.id, oldJti: decoded.jti });
 
   return tokens;
 };
@@ -146,15 +238,17 @@ export const logout = async (token) => {
     where: { id: decoded.jti },
   });
 
-  if (!session) {
+  if (!session || session.revoked) {
     throw new AppError('Session already invalid', 400, 'LOGOUT_FAILED');
   }
 
-  await prisma.session.delete({
+  // 🚪 Logical logout (audit preserve)
+  await prisma.session.update({
     where: { id: decoded.jti },
+    data: { revoked: true }
   });
 
-  logger.info('LOGOUT_SUCCESS', { userId: decoded.sub });
+  logger.info('LOGOUT', { userId: decoded.sub, jti: decoded.jti });
 };
 
 // ─────────────────────────────────────────────
@@ -187,6 +281,7 @@ export const getActiveSessions = async (userId) => {
   return prisma.session.findMany({
     where: {
       userId,
+      revoked: false,
       expiresAt: { gt: new Date() },
     },
     select: {
@@ -223,7 +318,7 @@ export const revokeSession = async (sessionId, userId) => {
     where: { id: sessionId },
   });
 
-  if (!session) {
+  if (!session || session.revoked) {
     throw new AppError('Session not found', 404, 'NOT_FOUND');
   }
 
@@ -231,8 +326,9 @@ export const revokeSession = async (sessionId, userId) => {
     throw new AppError('Forbidden', 403, 'FORBIDDEN');
   }
 
-  await prisma.session.delete({
+  await prisma.session.update({
     where: { id: sessionId },
+    data: { revoked: true }
   });
 
   logger.info('SESSION_REVOKED', { userId, sessionId });
@@ -242,8 +338,9 @@ export const revokeSession = async (sessionId, userId) => {
 // REVOKE ALL SESSIONS
 // ─────────────────────────────────────────────
 export const revokeAllSessions = async (userId) => {
-  await prisma.session.deleteMany({
-    where: { userId },
+  await prisma.session.updateMany({
+    where: { userId, revoked: false },
+    data: { revoked: true }
   });
 
   logger.info('ALL_SESSIONS_REVOKED', { userId });
@@ -255,13 +352,14 @@ export const revokeAllSessions = async (userId) => {
 const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
   // 🔒 Limit active sessions
   const sessions = await prisma.session.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, revoked: false },
     orderBy: { createdAt: 'asc' },
   });
 
   if (sessions.length >= MAX_SESSIONS) {
-    await prisma.session.delete({
+    await prisma.session.update({
       where: { id: sessions[0].id },
+      data: { revoked: true }
     });
   }
   const jti = crypto.randomUUID();
@@ -279,6 +377,9 @@ const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
   const decoded = jwt.decode(refreshToken);
   const expiresAt = new Date(decoded.exp * 1000);
 
+  // 🔄 Hash refresh token for secure storage
+  const refreshTokenHash = await bcrypt.hash(refreshToken, BCRYPT_ROUNDS);
+
   await prisma.session.create({
     data: {
       id: jti,
@@ -286,6 +387,8 @@ const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
       ipAddress: ipAddress || null,
       userAgent: userAgent || null,
       expiresAt,
+      refreshTokenHash,
+      revoked: false
     },
   });
 

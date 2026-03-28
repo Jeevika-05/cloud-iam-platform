@@ -1,7 +1,4 @@
-
-
 services:
-
   postgres:
     image: postgres:16-alpine
     container_name: authdb
@@ -37,7 +34,7 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
     ports:

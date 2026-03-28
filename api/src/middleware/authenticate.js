@@ -37,7 +37,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     // ─────────────────────────────────────────────
-    // 4. Check user still exists
+    // 4. Check user still exists & Token Version
     // ─────────────────────────────────────────────
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
@@ -46,11 +46,17 @@ export const authenticate = async (req, res, next) => {
         email: true,
         name: true,
         role: true,
+        tokenVersion: true
       },
     });
 
     if (!user) {
       throw new AppError('User no longer exists', 401, 'USER_NOT_FOUND');
+    }
+
+    // Version Check
+    if (decoded.tokenVersion !== undefined && user.tokenVersion !== decoded.tokenVersion) {
+      throw new AppError('Token version invalid or revoked', 401, 'TOKEN_REVOKED');
     }
 
     // ─────────────────────────────────────────────

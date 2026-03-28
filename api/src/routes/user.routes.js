@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import * as userController from '../controllers/user.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { authorizeRoles } from '../middleware/authorizeRoles.js';   // ← NEW
+import { authorizeRoles } from '../middleware/authorizeRoles.js';
+import { authorizePolicy } from '../middleware/authorizePolicy.js';
 import {
   userIdParamRule,
   updateRoleRules,
@@ -27,7 +28,14 @@ router.get(
 
 router.get(
   '/:id',
-  authorizeRoles('ADMIN', 'SECURITY_ANALYST'),  // analysts can read individual users
+  authenticate,
+  authorizePolicy({
+    action: 'read',
+    resource: 'user',
+    getResource: async (req) => ({
+      id: req.params.id
+    })
+  }),
   userIdParamRule,
   validate,
   userController.getUserById
