@@ -84,20 +84,21 @@ export const errorHandler = (err, req, res, next) => {
   // ─────────────────────────────────────────────
   // 5. Safe response (NO leakage)
   // ─────────────────────────────────────────────
- res.status(statusCode).json({
-  success: false,
-  code: error.code || 'INTERNAL_ERROR',
-  message:
-    error.isOperational || !isProduction
-      ? error.message
-      : 'An unexpected error occurred',
+  const responsePayload = {
+    success: false,
+    code: error.code || 'INTERNAL_ERROR',
+    message: error.isOperational || !isProduction ? error.message : 'An unexpected error occurred',
+  };
 
-  errors: error.errors || null, 
+  if (error.errors) {
+    responsePayload.errors = error.errors;
+  }
 
-  ...(process.env.NODE_ENV === 'development' && {
-    stack: err.stack,
-  }),
-});
+  if (!isProduction) {
+    responsePayload.stack = err.stack;
+  }
+
+  res.status(statusCode).json(responsePayload);
 };
 // ───────────────────────────────────────────────────────────
 // 404 Handler

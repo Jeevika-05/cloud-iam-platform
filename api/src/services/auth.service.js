@@ -44,11 +44,9 @@ export const register = async ({ name, email, password, ipAddress, userAgent }) 
 
   const { password: _, ...safeUser } = user;
 
-  const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
-
   logger.info('REGISTER_SUCCESS', { userId: user.id });
 
-  return { user: safeUser, ...tokens };
+  return { user: safeUser };
 };
 
 // ─────────────────────────────────────────────

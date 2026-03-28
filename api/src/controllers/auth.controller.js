@@ -60,7 +60,7 @@ export const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
-    const result = await authService.register({
+    await authService.register({
       name,
       email,
       password,
@@ -68,21 +68,10 @@ export const register = async (req, res, next) => {
       userAgent: req.headers['user-agent'],
     });
 
-    // Set refresh token in cookie
-    res.cookie('refreshToken', result.refreshToken, {
-      ...REFRESH_COOKIE_OPTIONS,
-      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    return res.status(201).json({
+      success: true,
+      message: 'User registered successfully'
     });
-
-    return successResponse(
-      res,
-      {
-        accessToken: result.accessToken,
-        user: result.user,
-      },
-      'Registration successful',
-      201
-    );
   } catch (err) {
     next(err);
   }
