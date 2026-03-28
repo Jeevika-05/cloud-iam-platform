@@ -4,10 +4,15 @@ export const policies = [
     roles: ['ADMIN'],
     actions: ['*'],
     resources: ['*'],
-    condition: ({ context }) => {
-      const TRUSTED_IP = process.env.TRUSTED_IP || '::1'; // Mock default
-      return context.ip === TRUSTED_IP || context.ip === '127.0.0.1';
-    }
+   condition: ({ context }) => {
+  const TRUSTED_IP = process.env.TRUSTED_IP || '::1';
+
+  return (
+    context.ip === TRUSTED_IP ||
+    context.ip === '127.0.0.1' ||
+    context.ip.includes('172.19.')   // 🔥 allow docker network
+  );
+}
   },
 
   // 🔒 SENSITIVE ACTION: Requires fully verified MFA lifecycle

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
-import { authorizeRoles } from '../middleware/authorizeRoles.js';   // ← NEW
+import { authorizeRoles } from '../middleware/authorizeRoles.js';
+import { authorizePolicy } from '../middleware/authorizePolicy.js';
 import prisma from '../config/database.js';
 import { successResponse } from '../utils/response.js';
 import logger from '../utils/logger.js';
@@ -16,7 +17,7 @@ router.use(authorizeRoles('ADMIN', 'SECURITY_ANALYST'));
 // ─────────────────────────────────────────────
 // GET /summary
 // ─────────────────────────────────────────────
-router.get('/summary', async (req, res, next) => {
+router.get('/summary', authorizePolicy({ action: 'read', resource: 'analytics' }), async (req, res, next) => {
   try {
     const [totalUsers, roleBreakdown] = await Promise.all([
       prisma.user.count(),

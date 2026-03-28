@@ -23,6 +23,7 @@ router.use(authenticate);
 router.get(
   '/',
   authorizeRoles('ADMIN'),
+  authorizePolicy({ action: 'read', resource: 'user' }),
   userController.getAllUsers
 );
 
@@ -44,6 +45,7 @@ router.get(
 router.patch(
   '/:id/role',
   authorizeRoles('ADMIN'),
+  authorizePolicy({ action: 'update', resource: 'user' }),
   userIdParamRule,
   updateRoleRules,
   validate,
@@ -53,6 +55,7 @@ router.patch(
 router.delete(
   '/:id',
   authorizeRoles('ADMIN'),
+  authorizePolicy({ action: 'delete', resource: 'user' }),
   userIdParamRule,
   validate,
   userController.deleteUser
