@@ -352,5 +352,124 @@ impl ApiClient {
             }
         }
     }
+
+    // ── Logout (revoke session via refresh token) ─
+
+    pub async fn logout(&self, access_token: &str, refresh_token: &str) -> HttpResult {
+        let url = format!("{}/api/v1/auth/logout", self.base_url);
+        let start = std::time::Instant::now();
+
+        let result = self.client.post(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Cookie", format!("refreshToken={}", refresh_token))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                let code = json["code"].as_str().unwrap_or("").to_string();
+                HttpResult { status, code, body: json, latency_ms }
+            }
+            Err(e) => {
+                let json = serde_json::json!({ "error": e.to_string() });
+                HttpResult { status: 0, code: "NETWORK_ERROR".into(), body: json, latency_ms }
+            }
+        }
+    }
+
+    // ── Login raw (returns status + code for brute-force tracking) ─
+
+    pub async fn login_raw(&self, email: &str, password: &str) -> HttpResult {
+        let url = format!("{}/api/v1/auth/login", self.base_url);
+        let body = serde_json::json!({ "email": email, "password": password });
+        let start = std::time::Instant::now();
+
+        let result = self.client.post(&url)
+            .json(&body)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                let code = json["code"].as_str().unwrap_or("").to_string();
+                HttpResult { status, code, body: json, latency_ms }
+            }
+            Err(e) => {
+                let json = serde_json::json!({ "error": e.to_string() });
+                HttpResult { status: 0, code: "NETWORK_ERROR".into(), body: json, latency_ms }
+            }
+        }
+    }
+
+    // ── Authenticated POST (generic) ────────────
+
+    pub async fn post_authenticated(&self, path: &str, access_token: &str, body: &Value) -> HttpResult {
+        let url = format!("{}{}", self.base_url, path);
+        let start = std::time::Instant::now();
+
+        let result = self.client.post(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(body)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                let code = json["code"].as_str().unwrap_or("").to_string();
+                HttpResult { status, code, body: json, latency_ms }
+            }
+            Err(e) => {
+                let json = serde_json::json!({ "error": e.to_string() });
+                HttpResult { status: 0, code: "NETWORK_ERROR".into(), body: json, latency_ms }
+            }
+        }
+    }
+
+    // ── POST with cookie only (for CSRF testing) ─
+
+    pub async fn post_with_cookie(&self, path: &str, cookie_name: &str, cookie_val: &str) -> HttpResult {
+        let url = format!("{}{}", self.base_url, path);
+        let start = std::time::Instant::now();
+
+        let result = self.client.post(&url)
+            .header("Cookie", format!("{}={}", cookie_name, cookie_val))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                let code = json["code"].as_str().unwrap_or("").to_string();
+                HttpResult { status, code, body: json, latency_ms }
+            }
+            Err(e) => {
+                let json = serde_json::json!({ "error": e.to_string() });
+                HttpResult { status: 0, code: "NETWORK_ERROR".into(), body: json, latency_ms }
+            }
+        }
+    }
 }
 

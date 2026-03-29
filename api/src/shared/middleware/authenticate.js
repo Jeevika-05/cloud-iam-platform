@@ -72,11 +72,28 @@ export const authenticate = async (req, res, next) => {
     }
 
     // ─────────────────────────────────────────────
-    // 5. Attach user to request
+    // 5. JWT-claim vs DB-role mismatch detection
+    //    (defense-in-depth: catches tampered role claims)
+    // ─────────────────────────────────────────────
+    if (decoded.role && decoded.role !== user.role) {
+      logger.warn('JWT_ROLE_MISMATCH', {
+        userId: user.id,
+        jwtRole: decoded.role,
+        dbRole: user.role,
+        path: req.originalUrl,
+        ip: req.ip,
+        hint: 'Possible JWT payload tampering detected',
+      });
+      // NOTE: We do NOT reject here — we always use DB role (below).
+      // This log is for forensics / SIEM alerting.
+    }
+
+    // ─────────────────────────────────────────────
+    // 6. Attach user to request (role from DB, NOT from JWT)
     // ─────────────────────────────────────────────
     req.user = user;
 
-    // Optional: attach token payload if needed later
+    // Attach decoded token for session/jti info only
     req.auth = decoded;
 
     next();

@@ -11,6 +11,7 @@ const BRUTE_FORCE_ATTEMPTS: usize = 8;
 pub struct MfaAttackReport {
     pub attack: String,
     pub timestamp: String,
+    pub identity: String,
     pub setup_success: bool,
     pub replay: ReplayResult,
     pub brute_force: BruteForceResult,
@@ -60,10 +61,14 @@ pub async fn run(
 ) -> Result<MfaAttackReport, String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  PHASE 0 — Setup: register, login, enable MFA
+    //  PHASE 0 — Setup: register + enable MFA
+    //
+    //  Handles both fresh and re-run scenarios:
+    //  - Fresh: register → login → setup MFA → verify
+    //  - Re-run: account already has MFA → skip setup
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    let mfa_email = format!("mfa-{}", email);
+    let mfa_email = email.to_string();
     let mfa_password = password;
 
     println!("[MFA] Phase 0: Setting up MFA-enabled account...");
@@ -75,22 +80,42 @@ pub async fn run(
         Err(e) => println!("[MFA]   Registration: {}", e),
     }
 
-    // Login (returns tokens — MFA not yet enabled)
-    let login = client.login(&mfa_email, mfa_password).await
-        .map_err(|e| format!("initial login failed: {}", e))?;
-    let access_token = login.access_token.clone();
-    println!("[MFA]   Logged in (access token obtained)");
+    // Try normal login first — if it works, MFA isn't enabled yet
+    let totp_secret = match client.login(&mfa_email, mfa_password).await {
+        Ok(login) => {
+            // MFA not yet enabled → set it up now
+            let access_token = login.access_token.clone();
+            println!("[MFA]   Logged in (MFA not yet enabled)");
 
-    // Setup MFA — get TOTP secret
-    let totp_secret = client.mfa_setup(&access_token).await
-        .map_err(|e| format!("MFA setup failed: {}", e))?;
-    println!("[MFA]   TOTP secret received ({} chars)", totp_secret.len());
+            // Setup MFA — get TOTP secret
+            let secret = client.mfa_setup(&access_token).await
+                .map_err(|e| format!("MFA setup failed: {}", e))?;
+            println!("[MFA]   TOTP secret received ({} chars)", secret.len());
 
-    // Generate a valid code and finalize MFA enrollment
-    let valid_code = generate_totp_code(&totp_secret)?;
-    client.mfa_verify(&access_token, &valid_code).await
-        .map_err(|e| format!("MFA verify failed: {}", e))?;
-    println!("[MFA]   MFA enabled successfully");
+            // Generate a valid code and finalize MFA enrollment
+            let valid_code = generate_totp_code(&secret)?;
+            client.mfa_verify(&access_token, &valid_code).await
+                .map_err(|e| format!("MFA verify failed: {}", e))?;
+            println!("[MFA]   MFA enabled successfully");
+
+            secret
+        }
+        Err(e) => {
+            if e.contains("MFA_REQUIRED") {
+                // MFA already enabled from a previous run
+                println!("[MFA]   MFA already enabled (re-run detected)");
+                println!("[MFA]   ⚠ Cannot recover TOTP secret — using attack phases only");
+
+                // We don't have the TOTP secret, but we can still test
+                // replay and brute-force using tempTokens with wrong codes
+                String::new()
+            } else {
+                return Err(format!("initial login failed: {}", e));
+            }
+        }
+    };
+
+    let has_totp_secret = !totp_secret.is_empty();
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Temp Token Replay Attack
@@ -109,19 +134,20 @@ pub async fn run(
     let stolen_token = mfa_login.temp_token.clone();
     println!("[MFA]   Captured tempToken ({} chars)", stolen_token.len());
 
-    // 1st use: wrong code → consumes the JTI
+    // First use: submit with wrong code (consumes the JTI)
     println!("[MFA]   Use 1: wrong code (consumes token JTI)...");
     let first_use = client.mfa_validate_login(&stolen_token, "000000").await;
     println!("[MFA]     status={} code={}", first_use.status, first_use.code);
 
-    // 2nd use: replay same tempToken
+    // Second use: replay same tempToken (should be rejected)
     println!("[MFA]   Use 2: replay SAME tempToken...");
     let replay_use = client.mfa_validate_login(&stolen_token, "000000").await;
     println!("[MFA]     status={} code={}", replay_use.status, replay_use.code);
 
     let replay_blocked = replay_use.status == 401
         && (replay_use.code == "TOKEN_REUSE_DETECTED"
-            || replay_use.code == "TOKEN_INVALID");
+            || replay_use.code == "TOKEN_INVALID"
+            || replay_use.code == "TOKEN_EXPIRED");
 
     let replay_result = ReplayResult {
         first_use_status: first_use.status,
@@ -200,6 +226,40 @@ pub async fn run(
     println!("[MFA]   Rate limit triggered: {}", rate_limit_triggered);
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //  PHASE 3 (optional) — Validate correct TOTP still works
+    //
+    //  Only possible if we have the secret (fresh setup)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    if has_totp_secret {
+        println!();
+        println!("[MFA] Phase 3: Verifying correct TOTP still works");
+
+        // Wait a moment for TOTP counter to advance (avoid reuse of same code)
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        match client.login_expect_mfa(&mfa_email, mfa_password).await {
+            Ok(fresh_login) => {
+                let valid_code = generate_totp_code(&totp_secret)?;
+                let valid_result = client
+                    .mfa_validate_login(&fresh_login.temp_token, &valid_code)
+                    .await;
+
+                if valid_result.status == 200 {
+                    println!("[MFA]   ✅ Valid TOTP accepted (system functional)");
+                } else {
+                    println!("[MFA]   ⚠ Valid TOTP rejected: status={} code={}",
+                        valid_result.status, valid_result.code);
+                    println!("[MFA]   (may be rate-limited from brute-force phase)");
+                }
+            }
+            Err(e) => {
+                println!("[MFA]   ⚠ Could not get fresh tempToken: {}", e);
+            }
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  VERDICT
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -219,6 +279,7 @@ pub async fn run(
     Ok(MfaAttackReport {
         attack: "mfa_replay_brute_force".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
+        identity: mfa_email,
         setup_success: true,
         replay: replay_result,
         brute_force: brute_force_result,

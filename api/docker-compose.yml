@@ -87,14 +87,14 @@ services:
       # ATTACK_MODE options: all | token_race (atk01) | mfa_replay (atk02)
       ATTACK_MODE: ${ATTACK_MODE:-all}
     volumes:
-      - attack_reports:/reports
+      - ./reports:/reports
     networks:
       - backend
     restart: "no"
 
 volumes:
   postgres_data:
-  attack_reports:
+  
 
 networks:
   backend:

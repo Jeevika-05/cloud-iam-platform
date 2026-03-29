@@ -1,3 +1,11 @@
 pub mod token_race;
 pub mod mfa_replay;
 pub mod idor;
+pub mod jwt_tamper;
+pub mod session_reuse;
+pub mod password_brute;
+pub mod session_invalidation;
+pub mod rate_flood;
+pub mod csrf;
+pub mod mass_assignment;
+pub mod access_token_abuse;
