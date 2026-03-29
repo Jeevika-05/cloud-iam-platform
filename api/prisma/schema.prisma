@@ -10,74 +10,77 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  password  String? // Optional for OAuth users
-  name      String
-  role      Role      @default(USER)
-  
-  googleId  String?   @unique
-  provider  String?   @default("local")
-  sessions  Session[]
-  auditLogs AuditLog[] 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  failedLoginAttempts   Int      @default(0)
-  lockUntil             DateTime?
-  lastTempTokenJti String?
+  id       String  @id @default(uuid())
+  email    String  @unique
+  password String? // Optional for OAuth users
+  name     String
+  role     Role    @default(USER)
 
-  tokenVersion          Int      @default(0)
+  googleId            String?    @unique
+  provider            String?    @default("local")
+  sessions            Session[]
+  auditLogs           AuditLog[]
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  failedLoginAttempts Int        @default(0)
+  lockUntil           DateTime?
+  lastTempTokenJti    String?
+
+  tokenVersion Int     @default(0)
   totpSecret   String?
   totpEnabled  Boolean @default(false)
-  
+
   // PATCH 4: Add Timestamp Tracking
   lastTempTokenUsedAt DateTime?
-  
+
   // PATCH 6: Lightweight Key Rotation Support
   totpSecretKeyVersion Int?
+
   @@map("users")
 }
 
 model Session {
-  id         String   @id
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   refreshTokenHash String
 
-  userAgent  String?
-  ipAddress  String?
+  userAgent String?
+  ipAddress String?
 
-  expiresAt  DateTime
-  lastUsedAt DateTime?
-  revoked    Boolean  @default(false)
-  mfaVerified Boolean @default(false)
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revoked     Boolean   @default(false)
+  isUsed      Boolean   @default(false)
+  mfaVerified Boolean   @default(false)
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@map("sessions")
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  action    String
-  status    String
+  action String
+  status String
 
   ip        String?
   userAgent String?
 
-  metadata  Json?
+  metadata Json?
 
   createdAt DateTime @default(now())
 
   @@index([userId])
 }
+
 // ─────────────────────────────────────────────
 // RBAC Role Enum
 // SECURITY_ANALYST replaces ANALYST.

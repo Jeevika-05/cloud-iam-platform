@@ -19,20 +19,20 @@ if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
 }
 import cors from 'cors';
 import morgan from 'morgan';
-import { apiLimiter } from './middleware/rateLimiter.js';
+import { apiLimiter, internalLimiter } from './shared/middleware/rateLimiter.js';
 import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import { randomUUID } from 'crypto';
 
-import authRoutes from './routes/auth.routes.js';
-import userRoutes from './routes/user.routes.js';
-import analyticsRoutes from './routes/analytics.routes.js';
-import mfaRoutes from './routes/mfa.routes.js';
+import authRoutes from './modules/auth/auth.routes.js';
+import userRoutes, { internalRouter as internalUserRouter } from './modules/user/user.routes.js';
+import analyticsRoutes from './modules/analytics/analytics.routes.js';
+import mfaRoutes from './modules/auth/mfa.routes.js';
 
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import { authenticate } from './middleware/authenticate.js';
-import logger from './utils/logger.js';
+import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.js';
+import { authenticate } from './shared/middleware/authenticate.js';
+import logger from './shared/utils/logger.js';
 
 const app = express();
 
@@ -66,13 +66,13 @@ app.use(
 );
 
 // ─────────────────────────────────────────────
-// CORS
+// CORS — 🔐 SECURITY FIX: No unsafe wildcard fallback
 // ─────────────────────────────────────────────
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',')
-      : true,
+      : ['http://localhost:3000'],
     credentials: true,
   })
 );
@@ -127,6 +127,13 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/mfa', mfaRoutes);
 app.use('/api/v1/users', authenticate, userRoutes);
 app.use('/api/v1/analytics', authenticate, analyticsRoutes);
+
+// ─────────────────────────────────────────────
+// INTERNAL ROUTES — Zero Trust (service-to-service only)
+// Chain: internalLimiter → internalAuth (inside router)
+// Separate prefix prevents collision with /api/v1/users.
+// ─────────────────────────────────────────────
+app.use('/api/internal/users', internalLimiter, internalUserRouter);
 
 // ─────────────────────────────────────────────
 // ERROR HANDLING

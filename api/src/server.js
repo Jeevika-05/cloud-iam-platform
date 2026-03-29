@@ -1,13 +1,21 @@
 import 'dotenv/config';
 import app from './app.js';
-import prisma from './config/database.js';
-import logger from './utils/logger.js';
+import prisma from './shared/config/database.js';
+import logger from './shared/utils/logger.js';
 
 const PORT = process.env.PORT || 3000;
 
 // Validate env
 if (!process.env.DATABASE_URL || !process.env.JWT_SECRET) {
   throw new Error('Missing required environment variables');
+}
+
+// Warn (not throw) — internal routes will fail-secure but main service stays up
+if (!process.env.INTERNAL_SERVICE_TOKEN) {
+  logger.warn(
+    '⚠️  INTERNAL_SERVICE_TOKEN is not set. ' +
+    'Internal service-to-service routes will reject all requests.'
+  );
 }
 
 const shutdown = async (signal, server) => {

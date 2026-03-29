@@ -14,8 +14,12 @@
     "lint": "echo \"Add ESLint later\"",
     "test": "echo \"Add tests later\""
   },
+  "prisma":{
+    "seed": "node prisma/seed.js"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "axios": "^1.14.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",

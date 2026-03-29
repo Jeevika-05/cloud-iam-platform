@@ -1,0 +1,84 @@
+import speakeasy from 'speakeasy';
+import qrcode from 'qrcode';
+import prisma from '../../shared/config/database.js';
+import AppError from '../../shared/utils/AppError.js';
+import { logSecurityEvent } from './audit.service.js';
+import { encrypt, decrypt } from '../../shared/utils/cipher.js';
+
+export const setupMfa = async (userId) => {
+  const secret = speakeasy.generateSecret({
+    name: `CloudIAM (${userId})`,
+  });
+
+  const qr = await qrcode.toDataURL(secret.otpauth_url);
+
+  // store encrypted secret temporarily
+  const version = Number(process.env.ACTIVE_KEY_VERSION);
+  if (!version) throw new Error("ACTIVE_KEY_VERSION missing");
+
+  const encryptedSecret = encrypt(secret.base32, version);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { 
+      totpSecret: encryptedSecret, 
+      totpEnabled: false,
+      totpSecretKeyVersion: version
+    }
+  });
+
+  return {
+    qr,
+    manualKey: secret.base32,
+    otpauth_url: secret.otpauth_url
+  };
+};
+
+export const verifyMfa = async (userId, code) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  
+  if (!user || !user.totpSecret) {
+    throw new AppError('MFA secret not found. Setup first.', 400, 'MFA_NOT_SETUP');
+  }
+
+  if (user.totpSecret && !user.totpSecretKeyVersion) {
+    throw new AppError(
+      'Invalid encryption state',
+      500,
+      'CRYPTO_STATE_INVALID'
+    );
+  }
+
+  if (!user.totpSecretKeyVersion) {
+    throw new AppError('MFA key version missing', 500, 'MFA_KEY_ERROR');
+  }
+
+  const decryptedSecret = decrypt(user.totpSecret, user.totpSecretKeyVersion);
+
+  const verified = speakeasy.totp.verify({
+    secret: decryptedSecret,
+    encoding: 'base32',
+    token: code,
+    window: 1, // Allow 30 seconds drift before/after
+  });
+
+  if (!verified) {
+    // Audit log failure
+    await logSecurityEvent({
+      userId, action: 'MFA_ENABLED', status: 'FAILED'
+    });
+    throw new AppError('Invalid MFA code', 400, 'INVALID_MFA_CODE');
+  }
+
+  // Finalize setup
+  await prisma.user.update({
+    where: { id: userId },
+    data: { totpEnabled: true },
+  });
+
+  await logSecurityEvent({
+    userId, action: 'MFA_ENABLED', status: 'SUCCESS'
+  });
+
+  return { success: true };
+};

@@ -1,4 +1,4 @@
-node_modules/
+clsnode_modules/
 .env
 dist/
 coverage/
