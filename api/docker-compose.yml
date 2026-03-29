@@ -25,7 +25,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder
     container_name: auth_api
     restart: unless-stopped
     depends_on:
@@ -37,13 +36,15 @@ services:
       NODE_ENV: development
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
     ports:
       - '${PORT:-3000}:3000'
     volumes:
       - .:/app
       - /app/node_modules
     command: npm run dev
-
     networks:
       - backend
     healthcheck:
@@ -71,8 +72,29 @@ services:
     networks:
       - backend
 
+  attacker:
+    build:
+      context: ../simulation-engine/cloudshield-attacker
+      dockerfile: Dockerfile
+    container_name: auth_attacker
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      TARGET_URL: http://api:3000
+      ATTACK_EMAIL: ${ATTACK_EMAIL:-attacker@test.com}
+      ATTACK_PASSWORD: ${ATTACK_PASSWORD:-Attack@123}
+      # ATTACK_MODE options: all | token_race (atk01) | mfa_replay (atk02)
+      ATTACK_MODE: ${ATTACK_MODE:-all}
+    volumes:
+      - attack_reports:/reports
+    networks:
+      - backend
+    restart: "no"
+
 volumes:
   postgres_data:
+  attack_reports:
 
 networks:
   backend:
