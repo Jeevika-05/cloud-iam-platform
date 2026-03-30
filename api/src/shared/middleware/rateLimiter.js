@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import jwt from 'jsonwebtoken';
 import redisClient from '../config/redis.js';
+import { verifyTempToken } from '../utils/jwt.js';
 
 export const apiLimiter = rateLimit({
   store: new RedisStore({
@@ -35,15 +36,17 @@ export const mfaLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    if (req.body?.tempToken) {
-      try {
-        const decoded = jwt.verify(req.body.tempToken, process.env.JWT_SECRET);
-        if (decoded?.sub) return `mfa-${decoded.sub}`;
-      } catch {
-        // fall through to IP-based key
-      }
+    try {
+      const tempToken = req.body?.tempToken;
+      if (!tempToken) return `mfa-${extractClientInfo(req).ip}`;
+
+      const decoded = verifyTempToken(tempToken);
+
+      // per-user limiter (prevents distributed MFA attacks)
+      return `mfa:${decoded.sub}`;
+    } catch {
+      return `mfa-${extractClientInfo(req).ip}`;
     }
-    return `mfa-${extractClientInfo(req).ip}`;
   },
   message: {
     success: false,

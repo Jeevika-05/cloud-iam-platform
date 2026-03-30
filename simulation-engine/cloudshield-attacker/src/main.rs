@@ -32,7 +32,7 @@ impl AttackMode {
             .trim()
         {
             s if s == "token_race" || s == "atk01" || s == "atk-01" => AttackMode::TokenRace,
-            s if s == "mfa_replay" || s == "atk02" || s == "atk-02" => AttackMode::MfaReplay,
+            s if s == "mfa_replay" || s == "mfa_brute_force_single_ip" || s == "atk02" || s == "atk-02" => AttackMode::MfaReplay,
             s if s == "idor" || s == "atk03" || s == "atk-03" => AttackMode::Idor,
             s if s == "jwt_tamper" || s == "atk04" || s == "atk-04" => AttackMode::JwtTamper,
             s if s == "session_reuse" || s == "atk05" || s == "atk-05" => AttackMode::SessionReuse,
@@ -158,7 +158,7 @@ async fn main() {
 
         println!();
         println!("═══════════════════════════════════════════");
-        println!("  ATK-02 ▸ MFA Replay + Brute Force");
+        println!("  ATK-02 ▸ MFA Brute Force (Single IP)");
         println!("  Identity: {}", email);
         println!("═══════════════════════════════════════════");
         println!();
@@ -174,7 +174,7 @@ async fn main() {
             Err(e) => {
                 eprintln!("[ATK-02] FAILED: {}", e);
                 reports.push(serde_json::json!({
-                    "attack": "mfa_replay_brute_force",
+                    "attack": "mfa_brute_force_single_ip",
                     "identity": email,
                     "verdict": "ERROR",
                     "error": e

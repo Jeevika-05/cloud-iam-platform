@@ -3,27 +3,27 @@
   "engine": "cloudshield-attacker",
   "graph_events": [
     {
-      "action": "TOKEN_RACE",
+      "action": "MFA_BRUTE_FORCE_SINGLE_IP",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "e555d73c-129c-4faf-bc08-65e5d04e0272",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "4a2944b5-0b01-42b1-8bf9-9fcfc0c4fb57",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
       "severity": "LOW",
       "source_ip": "192.168.1.100",
-      "target_endpoint": "/api/v1/auth/refresh",
+      "target_endpoint": "/api/v1/mfa/validate-login",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:28.160268217+00:00",
+      "timestamp": "2026-03-30T18:37:50.883041285+00:00",
       "user_agent": "attack-engine",
-      "user_email": "atk-token-race@test.com",
-      "user_id": "a3bd0cf4-43d4-4468-bf90-99590141106c"
+      "user_email": "atk-mfa@test.com",
+      "user_id": "atk-mfa@test.com"
     },
     {
       "action": "IDOR",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "d2cfbe4c-7b3d-4c9c-ab8d-557318324597",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "7b77ba50-7944-4763-bada-2f882255b5f9",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -31,7 +31,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/users",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:29.886546958+00:00",
+      "timestamp": "2026-03-30T18:37:52.009980510+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-idor@test.com",
       "user_id": "atk-idor@test.com"
@@ -39,8 +39,8 @@
     {
       "action": "JWT_TAMPER",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "e330acaa-9d5a-43d2-a38a-c2b85edcd028",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "602c214d-a703-405a-aa45-80b248534ed5",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -48,7 +48,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/profile",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:31.230411790+00:00",
+      "timestamp": "2026-03-30T18:37:53.074686428+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-jwt@test.com",
       "user_id": "1994e0bb-c233-45e2-a1d1-d0a15b4d71ea"
@@ -56,8 +56,8 @@
     {
       "action": "SESSION_REUSE",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "9991389c-e15f-4798-8cfb-a2b25fc82973",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "769221ad-2f30-432c-a31d-778906372b2f",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -65,7 +65,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/refresh",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:33.503838025+00:00",
+      "timestamp": "2026-03-30T18:37:55.161482503+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-sess-reuse@test.com",
       "user_id": "4429ad0b-8a8b-48ea-8706-d7356ae839f2"
@@ -73,8 +73,8 @@
     {
       "action": "PASSWORD_BRUTE",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "5e0bb332-dbbb-474c-aaff-fea44fc3f652",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "4aa1a08f-3ce8-4d89-9291-68fac19c64d6",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -82,7 +82,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/login",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:35.727704664+00:00",
+      "timestamp": "2026-03-30T18:37:57.320065731+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-brute@test.com",
       "user_id": "8c7d8267-f8db-4648-8b71-d0b142e6b16f"
@@ -90,8 +90,8 @@
     {
       "action": "SESSION_INVALID",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "5e1e24d0-73ce-4e33-8bfe-c27b7eddd424",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "da31435f-0a87-475a-abd9-a1a904e71245",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -99,33 +99,16 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/logout",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:37.348873300+00:00",
+      "timestamp": "2026-03-30T18:37:58.873168310+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-logout@test.com",
       "user_id": "118f660e-33cf-45ce-b399-ee682c1edcdd"
     },
     {
-      "action": "RATE_FLOOD",
-      "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "e198da86-c1df-4ed2-8e62-ce0dad95b231",
-      "event_type": "ATTACK",
-      "ip_type": "SIMULATED",
-      "result": "SECURE",
-      "severity": "LOW",
-      "source_ip": "192.168.1.100",
-      "target_endpoint": "/api/v1/auth/profile",
-      "target_type": "API",
-      "timestamp": "2026-03-30T16:11:38.819305859+00:00",
-      "user_agent": "attack-engine",
-      "user_email": "atk-flood@test.com",
-      "user_id": "0fee5a49-d7d9-411b-985a-7185b211fb1b"
-    },
-    {
       "action": "CSRF",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "30c22d19-3620-4364-ab03-9886f6f0e0fc",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "4667fda9-16ae-434e-8bb9-c8369ac8ccd6",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -133,7 +116,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/logout",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:39.955265993+00:00",
+      "timestamp": "2026-03-30T18:37:59.872671710+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-csrf@test.com",
       "user_id": "ee14dfb3-9829-49e0-89ae-c564808effd2"
@@ -141,8 +124,8 @@
     {
       "action": "MASS_ASSIGNMENT",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "64216277-f6ab-4a9a-a089-5e431035362e",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "48b410cb-b59d-4e8b-a867-bb72665e9651",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -150,7 +133,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/users/role",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:41.296657627+00:00",
+      "timestamp": "2026-03-30T18:38:00.892554271+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-mass@test.com",
       "user_id": "c1ddf57c-65e1-4ce3-9df4-ac1a85c8c01f"
@@ -158,8 +141,8 @@
     {
       "action": "ACCESS_TOKEN_ABUSE",
       "agent_type": "SIMULATED",
-      "correlation_id": "f540752c-7976-4ed2-8473-59b03d554744",
-      "event_id": "0e865741-49ad-4e51-a5b2-0e717477e901",
+      "correlation_id": "cabdbddb-cf7e-47c9-a6ba-41bbd79cab48",
+      "event_id": "53f448e9-3dd8-46d7-988b-ede97278bfca",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -167,7 +150,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/profile",
       "target_type": "API",
-      "timestamp": "2026-03-30T16:11:42.480246687+00:00",
+      "timestamp": "2026-03-30T18:38:02.019527827+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-token-abuse@test.com",
       "user_id": "97dff46c-08d2-4fa0-9bd2-f5c8fca961ee"
@@ -177,33 +160,20 @@
   "results": [
     {
       "attack": "token_race_condition",
-      "blocked_count": 49,
-      "detection_codes": {
-        "REFRESH_TOKEN_INVALID": 14,
-        "SESSION_COMPROMISED": 5,
-        "SUCCESS": 1
-      },
-      "error_count": 0,
-      "latency": {
-        "avg_ms": 660,
-        "max_ms": 743,
-        "min_ms": 516
-      },
-      "status_distribution": {
-        "200": 1,
-        "401": 19,
-        "429": 30
-      },
-      "success_count": 1,
-      "timestamp": "2026-03-30T16:11:28.160253016+00:00",
-      "total_requests": 50,
-      "verdict": "SECURE"
+      "error": "login failed (429): Too many requests, please try again later.",
+      "identity": "atk-token-race@test.com",
+      "verdict": "ERROR"
     },
     {
-      "attack": "mfa_replay_brute_force",
-      "error": "initial login failed: No refreshToken cookie in login response",
-      "identity": "atk-mfa@test.com",
-      "verdict": "ERROR"
+      "attack": "mfa_brute_force_single_ip",
+      "blocked_count": 10,
+      "status_distribution": {
+        "400": 1,
+        "401": 4,
+        "429": 10
+      },
+      "total_requests": 15,
+      "verdict": "SECURE"
     },
     {
       "attack": "idor_authorization_bypass",
@@ -265,7 +235,7 @@
           "status": 200
         }
       ],
-      "timestamp": "2026-03-30T16:11:29.886541629+00:00",
+      "timestamp": "2026-03-30T18:37:52.009975542+00:00",
       "verdict": "SECURE",
       "victim_email": "idor-victim-atk-idor@test.com",
       "victim_id": "649255ee-fd75-4169-9167-bf5b1c05e183"
@@ -291,7 +261,7 @@
           "response_code": "SIGNATURE_INVALID",
           "response_status": 401,
           "severity": "NONE",
-          "tampered_token": "eyJhbGci…wsKPInPA"
+          "tampered_token": "eyJhbGci…uQSPqXYY"
         },
         {
           "accepted": false,
@@ -302,7 +272,7 @@
           "response_code": "SIGNATURE_INVALID",
           "response_status": 401,
           "severity": "NONE",
-          "tampered_token": "eyJhbGci…wsKPInPA"
+          "tampered_token": "eyJhbGci…uQSPqXYY"
         },
         {
           "accepted": false,
@@ -346,7 +316,7 @@
           "response_code": "SIGNATURE_INVALID",
           "response_status": 401,
           "severity": "NONE",
-          "tampered_token": "eyJhbGci…wsKPInPA"
+          "tampered_token": "eyJhbGci…uQSPqXYY"
         },
         {
           "accepted": false,
@@ -360,7 +330,7 @@
           "tampered_token": "eyJhbGci…2VzcyJ9."
         }
       ],
-      "timestamp": "2026-03-30T16:11:31.230406622+00:00",
+      "timestamp": "2026-03-30T18:37:53.074682381+00:00",
       "verdict": "SECURE"
     },
     {
@@ -373,8 +343,8 @@
       },
       "error_count": 0,
       "latency": {
-        "avg_ms": 88,
-        "max_ms": 572,
+        "avg_ms": 82,
+        "max_ms": 517,
         "min_ms": 4
       },
       "phases": {
@@ -390,7 +360,7 @@
         "401": 6
       },
       "success_count": 1,
-      "timestamp": "2026-03-30T16:11:33.503832879+00:00",
+      "timestamp": "2026-03-30T18:37:55.161478100+00:00",
       "total_requests": 7,
       "verdict": "SECURE"
     },
@@ -412,16 +382,16 @@
       },
       "error_count": 8,
       "latency": {
-        "avg_ms": 164,
-        "max_ms": 287,
-        "min_ms": 5
+        "avg_ms": 159,
+        "max_ms": 260,
+        "min_ms": 4
       },
       "status_distribution": {
         "401": 5,
         "403": 3
       },
       "success_count": 0,
-      "timestamp": "2026-03-30T16:11:35.727698078+00:00",
+      "timestamp": "2026-03-30T18:37:57.320056390+00:00",
       "total_requests": 11,
       "verdict": "SECURE"
     },
@@ -435,9 +405,9 @@
       },
       "error_count": 0,
       "latency": {
-        "avg_ms": 8,
-        "max_ms": 14,
-        "min_ms": 5
+        "avg_ms": 3,
+        "max_ms": 10,
+        "min_ms": 2
       },
       "phases": {
         "access_token_after_logout_status": 401,
@@ -454,39 +424,15 @@
         "401": 5
       },
       "success_count": 1,
-      "timestamp": "2026-03-30T16:11:37.348866912+00:00",
+      "timestamp": "2026-03-30T18:37:58.873163927+00:00",
       "total_requests": 6,
       "verdict": "SECURE"
     },
     {
       "attack": "api_rate_flood",
-      "blocked_count": 178,
-      "detection_codes": {
-        "SUCCESS": 22
-      },
-      "error_count": 0,
-      "flood_details": {
-        "concurrency": 50,
-        "first_429_at_request": 23,
-        "p95_latency_ms": 135,
-        "p99_latency_ms": 146,
-        "rate_limit_triggered": true,
-        "target_endpoint": "/api/v1/auth/profile",
-        "total_sent": 200
-      },
-      "latency": {
-        "avg_ms": 54,
-        "max_ms": 146,
-        "min_ms": 18
-      },
-      "status_distribution": {
-        "200": 22,
-        "429": 178
-      },
-      "success_count": 22,
-      "timestamp": "2026-03-30T16:11:38.819300300+00:00",
-      "total_requests": 200,
-      "verdict": "SECURE"
+      "error": "login failed: login failed (429): Too many requests, please try again later.",
+      "identity": "atk-flood@test.com",
+      "verdict": "ERROR"
     },
     {
       "attack": "csrf",
@@ -518,6 +464,6 @@
       "verdict": "SECURE"
     }
   ],
-  "timestamp": "2026-03-30T16:11:42.480264868+00:00",
+  "timestamp": "2026-03-30T18:38:02.019544243+00:00",
   "total_attacks": 11
 }

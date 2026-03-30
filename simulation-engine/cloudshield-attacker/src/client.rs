@@ -113,8 +113,20 @@ impl ApiClient {
             return Err(format!("login failed ({}): {}", status, text));
         }
 
-        let refresh_token = refresh_token
-            .ok_or("No refreshToken cookie in login response")?;
+        let refresh_token = match refresh_token {
+    Some(token) => token,
+    None => {
+        // 🔥 If MFA is required, don't treat as error
+        if json.get("data")
+            .and_then(|d| d.get("status"))
+            .and_then(|s| s.as_str()) == Some("MFA_REQUIRED")
+        {
+            return Err("MFA_REQUIRED".into());
+        }
+
+        return Err("No refreshToken cookie in login response".into());
+    }
+};
 
         let access_token = json["data"]["accessToken"]
             .as_str().unwrap_or("").to_string();
