@@ -313,6 +313,17 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
       where: { userId: decoded.sub },
       data: { revoked: true }
     });
+
+    // 📋 AUDIT: Persist token reuse detection event
+    await logSecurityEvent({
+      userId: decoded.sub,
+      action: 'TOKEN_REUSE_DETECTED',
+      status: 'FAILURE',
+      ip: ipAddress,
+      userAgent,
+      metadata: { jti: decoded.jti, allSessionsRevoked: true },
+    });
+
     throw new AppError('Refresh token reuse detected. All sessions revoked.', 401, 'SESSION_COMPROMISED');
   }
 
@@ -395,6 +406,16 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
 
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
 
+  // 📋 AUDIT: Persist successful token refresh
+  await logSecurityEvent({
+    userId: safeUser.id,
+    action: 'TOKEN_REFRESHED',
+    status: 'SUCCESS',
+    ip: ipAddress,
+    userAgent,
+    metadata: { oldJti: decoded.jti },
+  });
+
   logger.info('TOKEN_ROTATED', { userId: safeUser.id, oldJti: decoded.jti });
 
   return tokens;
@@ -426,6 +447,16 @@ export const logout = async (token) => {
   await prisma.session.update({
     where: { id: decoded.jti },
     data: { revoked: true }
+  });
+
+  // 📋 AUDIT: Persist logout event
+  await logSecurityEvent({
+    userId: decoded.sub,
+    action: 'LOGOUT',
+    status: 'SUCCESS',
+    ip: null,
+    userAgent: null,
+    metadata: { jti: decoded.jti },
   });
 
   logger.info('LOGOUT', { userId: decoded.sub, jti: decoded.jti });
@@ -511,6 +542,16 @@ export const revokeSession = async (sessionId, userId) => {
     data: { revoked: true }
   });
 
+  // 📋 AUDIT: Persist single session revocation
+  await logSecurityEvent({
+    userId,
+    action: 'SESSION_REVOKED',
+    status: 'SUCCESS',
+    ip: null,
+    userAgent: null,
+    metadata: { revokedSessionId: sessionId },
+  });
+
   logger.info('SESSION_REVOKED', { userId, sessionId });
 };
 
@@ -518,12 +559,22 @@ export const revokeSession = async (sessionId, userId) => {
 // REVOKE ALL SESSIONS
 // ─────────────────────────────────────────────
 export const revokeAllSessions = async (userId) => {
-  await prisma.session.updateMany({
+  const result = await prisma.session.updateMany({
     where: { userId, revoked: false },
     data: { revoked: true }
   });
 
-  logger.info('ALL_SESSIONS_REVOKED', { userId });
+  // 📋 AUDIT: Persist all-sessions revocation
+  await logSecurityEvent({
+    userId,
+    action: 'ALL_SESSIONS_REVOKED',
+    status: 'SUCCESS',
+    ip: null,
+    userAgent: null,
+    metadata: { sessionsRevoked: result.count },
+  });
+
+  logger.info('ALL_SESSIONS_REVOKED', { userId, count: result.count });
 };
 
 // ─────────────────────────────────────────────

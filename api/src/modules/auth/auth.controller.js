@@ -1,3 +1,4 @@
+import { extractClientInfo } from '../../shared/utils/clientInfo.js';
 import * as authService from './auth.service.js';
 import * as googleAuthService from './googleAuth.service.js';
 import { successResponse } from '../../shared/utils/response.js';
@@ -34,8 +35,8 @@ export const googleCallback = async (req, res, next) => {
       googleId,
       email,
       name,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+      ipAddress: extractClientInfo(req).ip,
+      userAgent: extractClientInfo(req).userAgent
     });
 
     if (result.status === 'MFA_REQUIRED') {
@@ -64,8 +65,8 @@ export const register = async (req, res, next) => {
       name,
       email,
       password,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
+      ipAddress: extractClientInfo(req).ip,
+      userAgent: extractClientInfo(req).userAgent,
     });
 
     return res.status(201).json({
@@ -87,8 +88,8 @@ export const login = async (req, res, next) => {
     const result = await authService.login({
       email,
       password,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
+      ipAddress: extractClientInfo(req).ip,
+      userAgent: extractClientInfo(req).userAgent,
     });
 
     if (result.status === 'MFA_REQUIRED') {
@@ -124,8 +125,8 @@ export const validateMfaLogin = async (req, res, next) => {
     const result = await authService.validateMfaLogin({
       code,
       tempToken,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
+      ipAddress: extractClientInfo(req).ip,
+      userAgent: extractClientInfo(req).userAgent,
     });
 
     // Set refresh token in cookie
@@ -155,8 +156,8 @@ export const refresh = async (req, res, next) => {
     const refreshToken = req.cookies.refreshToken;
 
     const tokens = await authService.refresh(refreshToken, {
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
+      ipAddress: extractClientInfo(req).ip,
+      userAgent: extractClientInfo(req).userAgent,
     });
 
     // Rotate cookie (replace old token)

@@ -2,6 +2,7 @@ import { verifyAccessToken } from '../utils/jwt.js';
 import AppError from '../utils/AppError.js';
 import prisma from '../config/database.js';
 import logger from '../utils/logger.js';
+import { extractClientInfo } from '../utils/clientInfo.js';
 
 export const authenticate = async (req, res, next) => {
   try {
@@ -81,7 +82,7 @@ export const authenticate = async (req, res, next) => {
         jwtRole: decoded.role,
         dbRole: user.role,
         path: req.originalUrl,
-        ip: req.ip,
+        ip: extractClientInfo(req).ip,
         hint: 'Possible JWT payload tampering detected',
       });
       // NOTE: We do NOT reject here — we always use DB role (below).
@@ -102,7 +103,7 @@ export const authenticate = async (req, res, next) => {
     // 🔐 Optional: log suspicious access attempts
     logger.warn('AUTH_FAILURE', {
       path: req.originalUrl,
-      ip: req.ip,
+      ip: extractClientInfo(req).ip,
       error: err.message,
     });
 

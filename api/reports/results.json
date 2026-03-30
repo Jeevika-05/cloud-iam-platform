@@ -13,16 +13,16 @@
       },
       "error_count": 0,
       "latency": {
-        "avg_ms": 1620,
-        "max_ms": 1712,
-        "min_ms": 1433
+        "avg_ms": 1872,
+        "max_ms": 1972,
+        "min_ms": 1595
       },
       "status_distribution": {
         "200": 1,
         "401": 49
       },
       "success_count": 1,
-      "timestamp": "2026-03-29T18:54:52.030703085+00:00",
+      "timestamp": "2026-03-30T08:30:22.159864400+00:00",
       "total_requests": 50,
       "verdict": "SECURE"
     },
@@ -92,7 +92,7 @@
           "status": 200
         }
       ],
-      "timestamp": "2026-03-29T18:54:53.220179790+00:00",
+      "timestamp": "2026-03-30T08:30:23.430241920+00:00",
       "verdict": "SECURE",
       "victim_email": "idor-victim-atk-idor@test.com",
       "victim_id": "649255ee-fd75-4169-9167-bf5b1c05e183"
@@ -118,7 +118,7 @@
           "response_code": "SIGNATURE_INVALID",
           "response_status": 401,
           "severity": "NONE",
-          "tampered_token": "eyJhbGci…AocvAn4Y"
+          "tampered_token": "eyJhbGci…SJ7c_n3s"
         },
         {
           "accepted": false,
@@ -129,7 +129,7 @@
           "response_code": "SIGNATURE_INVALID",
           "response_status": 401,
           "severity": "NONE",
-          "tampered_token": "eyJhbGci…AocvAn4Y"
+          "tampered_token": "eyJhbGci…SJ7c_n3s"
         },
         {
           "accepted": false,
@@ -173,7 +173,7 @@
           "response_code": "SIGNATURE_INVALID",
           "response_status": 401,
           "severity": "NONE",
-          "tampered_token": "eyJhbGci…AocvAn4Y"
+          "tampered_token": "eyJhbGci…SJ7c_n3s"
         },
         {
           "accepted": false,
@@ -187,7 +187,7 @@
           "tampered_token": "eyJhbGci…2VzcyJ9."
         }
       ],
-      "timestamp": "2026-03-29T18:54:53.674198656+00:00",
+      "timestamp": "2026-03-30T08:30:23.964488070+00:00",
       "verdict": "SECURE"
     },
     {
@@ -200,9 +200,9 @@
       },
       "error_count": 0,
       "latency": {
-        "avg_ms": 71,
-        "max_ms": 477,
-        "min_ms": 2
+        "avg_ms": 77,
+        "max_ms": 488,
+        "min_ms": 3
       },
       "phases": {
         "first_refresh_ok": true,
@@ -217,7 +217,7 @@
         "401": 6
       },
       "success_count": 1,
-      "timestamp": "2026-03-29T18:54:56.137368372+00:00",
+      "timestamp": "2026-03-30T08:30:25.496856198+00:00",
       "total_requests": 7,
       "verdict": "SECURE"
     },
@@ -239,8 +239,8 @@
       },
       "error_count": 4,
       "latency": {
-        "avg_ms": 115,
-        "max_ms": 450,
+        "avg_ms": 67,
+        "max_ms": 255,
         "min_ms": 3
       },
       "status_distribution": {
@@ -248,7 +248,7 @@
         "403": 3
       },
       "success_count": 0,
-      "timestamp": "2026-03-29T18:54:56.755595909+00:00",
+      "timestamp": "2026-03-30T08:30:25.929415808+00:00",
       "total_requests": 7,
       "verdict": "SECURE"
     },
@@ -263,7 +263,7 @@
       "error_count": 0,
       "latency": {
         "avg_ms": 4,
-        "max_ms": 7,
+        "max_ms": 9,
         "min_ms": 2
       },
       "phases": {
@@ -281,7 +281,7 @@
         "401": 5
       },
       "success_count": 1,
-      "timestamp": "2026-03-29T18:54:57.783525207+00:00",
+      "timestamp": "2026-03-30T08:30:26.968451092+00:00",
       "total_requests": 6,
       "verdict": "SECURE"
     },
@@ -295,22 +295,22 @@
       "flood_details": {
         "concurrency": 50,
         "first_429_at_request": 0,
-        "p95_latency_ms": 139,
-        "p99_latency_ms": 142,
+        "p95_latency_ms": 156,
+        "p99_latency_ms": 159,
         "rate_limit_triggered": false,
         "target_endpoint": "/api/v1/auth/profile",
         "total_sent": 200
       },
       "latency": {
-        "avg_ms": 107,
-        "max_ms": 142,
-        "min_ms": 74
+        "avg_ms": 121,
+        "max_ms": 159,
+        "min_ms": 69
       },
       "status_distribution": {
         "200": 200
       },
       "success_count": 200,
-      "timestamp": "2026-03-29T18:54:58.794365202+00:00",
+      "timestamp": "2026-03-30T08:30:28.005298550+00:00",
       "total_requests": 200,
       "verdict": "VULNERABLE"
     },
@@ -344,6 +344,6 @@
       "verdict": "SECURE"
     }
   ],
-  "timestamp": "2026-03-29T18:55:00.965376956+00:00",
+  "timestamp": "2026-03-30T08:30:29.503300188+00:00",
   "total_attacks": 11
 }

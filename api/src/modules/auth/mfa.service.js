@@ -29,7 +29,7 @@ export const setupMfa = async (userId) => {
 
   return {
     qr,
-    manualKey: secret.base32,
+    // 🔒 SEC-10: manual plain-text key removed. Return ONLY QR/URI to prevent leakage.
     otpauth_url: secret.otpauth_url
   };
 };

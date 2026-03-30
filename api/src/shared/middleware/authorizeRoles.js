@@ -20,6 +20,8 @@
 
 import AppError from '../utils/AppError.js';
 import logger from '../utils/logger.js';
+import { extractClientInfo } from '../utils/clientInfo.js';
+import { logSecurityEvent } from '../../modules/auth/audit.service.js';
 
 // ─────────────────────────────────────────────
 // Allowed role universe — single source of truth.
@@ -112,14 +114,31 @@ export const authorizeRoles = (...allowedRolesInput) => {
       const hasAccess = allowedRoles.some(allowedRole => expandedUserRoles.has(allowedRole));
 
       if (!hasAccess) {
+        const clientInfo = extractClientInfo(req);
+
         logger.warn('RBAC_DENIED', {
           userId:       req.user.id,
           userRoles:    userRoles,
           allowedRoles,
           method:       req.method,
           path:         req.originalUrl,
-          ip:           req.ip,
-          requestId:    req.id,           // set by app.js request-id middleware
+          ip:           clientInfo.ip,
+          requestId:    req.id,
+        });
+
+        // 📋 AUDIT: Persist RBAC denial for forensic analysis
+        logSecurityEvent({
+          userId: req.user.id,
+          action: 'RBAC_ACCESS_DENIED',
+          status: 'FAILURE',
+          ip: clientInfo.ip,
+          userAgent: clientInfo.userAgent,
+          metadata: {
+            userRoles,
+            requiredRoles: allowedRoles,
+            method: req.method,
+            path: req.originalUrl,
+          },
         });
 
         throw new AppError(

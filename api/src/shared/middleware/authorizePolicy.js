@@ -2,6 +2,8 @@ import AppError from '../utils/AppError.js';
 import logger from '../utils/logger.js';
 import prisma from '../config/database.js';
 import { evaluatePolicy } from '../../modules/auth/policyEngine.js';
+import { extractClientInfo } from '../utils/clientInfo.js';
+import { logSecurityEvent } from '../../modules/auth/audit.service.js';
 
 export const authorizePolicy = ({ action, resource, getResource }) => {
   return async (req, res, next) => {
@@ -16,7 +18,7 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
 
       // Build context object
       const context = {
-        ip: req.ip,
+        ip: extractClientInfo(req).ip,
         userAgent: req.headers['user-agent']
       };
 
@@ -34,7 +36,23 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
             (currentSession.userAgent && currentSession.userAgent !== context.userAgent)
           ) {
              logger.warn('ABAC_SESSION_HIJACK_DETECTED', { userId: req.user.id, ip: context.ip });
-             throw new AppError('Anomalous contextual access blocked', 403, 'SESSION_COMPROMISED');
+
+           // 📋 AUDIT: Persist session hijack detection
+           logSecurityEvent({
+             userId: req.user.id,
+             action: 'SESSION_HIJACK_DETECTED',
+             status: 'FAILURE',
+             ip: context.ip,
+             userAgent: context.userAgent,
+             metadata: {
+               sessionIp: currentSession.ipAddress,
+               sessionUserAgent: currentSession.userAgent,
+               requestIp: context.ip,
+               requestUserAgent: context.userAgent,
+             },
+           });
+
+           throw new AppError('Anomalous contextual access blocked', 403, 'SESSION_COMPROMISED');
           }
         }
       }
@@ -56,12 +74,29 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
       });
 
       if (!isAllowed) {
+        const clientInfo = extractClientInfo(req);
+
         logger.warn('ABAC_DENIED', {
           userId: req.user.id,
           action,
           resource,
           path: req.originalUrl,
-          ip: req.ip
+          ip: clientInfo.ip,
+        });
+
+        // 📋 AUDIT: Persist ABAC policy denial
+        logSecurityEvent({
+          userId: req.user.id,
+          action: 'ABAC_ACCESS_DENIED',
+          status: 'FAILURE',
+          ip: clientInfo.ip,
+          userAgent: clientInfo.userAgent,
+          metadata: {
+            policyAction: action,
+            policyResource: resource,
+            method: req.method,
+            path: req.originalUrl,
+          },
         });
 
         throw new AppError('Access denied by policy constraint', 403, 'FORBIDDEN');

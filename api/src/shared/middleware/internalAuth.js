@@ -9,7 +9,9 @@
  * ⚠️  Apply ONLY to internal routes. Do NOT use globally.
  * ───────────────────────────────────────────────────────────
  */
+import crypto from 'crypto';
 import logger from '../utils/logger.js';
+import { extractClientInfo } from '../utils/clientInfo.js';
 
 const INTERNAL_TOKEN = process.env.INTERNAL_SERVICE_TOKEN;
 
@@ -42,7 +44,7 @@ export const internalAuth = (req, res, next) => {
   if (!INTERNAL_TOKEN) {
     logger.warn('INTERNAL_AUTH_FAILED', {
       reason: 'token_not_configured',
-      ip:     req.ip,
+      ip:     extractClientInfo(req).ip,
       path:   req.originalUrl,
     });
     return res.status(403).json({
@@ -55,7 +57,7 @@ export const internalAuth = (req, res, next) => {
   if (!provided) {
     logger.warn('INTERNAL_AUTH_FAILED', {
       reason: 'missing_token',
-      ip:     req.ip,
+      ip:     extractClientInfo(req).ip,
       path:   req.originalUrl,
     });
     return res.status(403).json({
@@ -64,11 +66,16 @@ export const internalAuth = (req, res, next) => {
     });
   }
 
-  // Token supplied but does not match
-  if (provided !== INTERNAL_TOKEN) {
+  // 🔒 SEC-03: Timing-safe token comparison (prevents byte-by-byte brute force)
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(INTERNAL_TOKEN);
+  const isValid = providedBuf.length === expectedBuf.length &&
+    crypto.timingSafeEqual(providedBuf, expectedBuf);
+
+  if (!isValid) {
     logger.warn('INTERNAL_AUTH_FAILED', {
       reason: 'invalid_token',
-      ip:     req.ip,
+      ip:     extractClientInfo(req).ip,
       path:   req.originalUrl,
     });
     return res.status(403).json({

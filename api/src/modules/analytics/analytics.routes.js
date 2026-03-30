@@ -6,6 +6,7 @@ import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import prisma from '../../shared/config/database.js';
 import { successResponse } from '../../shared/utils/response.js';
 import logger from '../../shared/utils/logger.js';
+import { extractClientInfo } from '../../shared/utils/clientInfo.js';
 
 const router = Router();
 
@@ -37,7 +38,7 @@ router.get('/summary', authorizePolicy({ action: 'read', resource: 'analytics' }
     logger.info('ANALYTICS_ACCESSED', {
       userId: req.user.id,
       role:   req.user.role,
-      ip:     req.ip,
+      ip:     extractClientInfo(req).ip,
       path:   req.originalUrl,
     });
 

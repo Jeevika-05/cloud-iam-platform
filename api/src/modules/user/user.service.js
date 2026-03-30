@@ -1,6 +1,7 @@
 import prisma from '../../shared/config/database.js';
 import AppError from '../../shared/utils/AppError.js';
 import logger from '../../shared/utils/logger.js';
+import { logSecurityEvent } from '../auth/audit.service.js';
 
 // Allowed roles (prevent invalid role injection)
 const ALLOWED_ROLES = ['USER', 'ADMIN', 'SECURITY_ANALYST'];
@@ -97,8 +98,18 @@ export const updateUserRole = async (id, role, currentUser) => {
 
   // 🔥 CRITICAL: Prevent self role change (privilege abuse)
   if (currentUser.id === id) {
+    await logSecurityEvent({
+      userId: currentUser.id,
+      action: 'ROLE_CHANGE_SELF_DENIED',
+      status: 'FAILURE',
+      ip: null,
+      userAgent: null,
+      metadata: { targetUserId: id, attemptedRole: role },
+    });
     throw new AppError('You cannot change your own role', 403, 'FORBIDDEN');
   }
+
+  const previousRole = user.role;
 
   const updatedUser = await prisma.user.update({
     where: { id },
@@ -106,8 +117,19 @@ export const updateUserRole = async (id, role, currentUser) => {
     select: { id: true, name: true, email: true, role: true },
   });
 
+  // 📋 AUDIT: Persistent audit trail for role changes
+  await logSecurityEvent({
+    userId: currentUser.id,
+    action: 'USER_ROLE_CHANGED',
+    status: 'SUCCESS',
+    ip: null,
+    userAgent: null,
+    metadata: { targetUserId: id, previousRole, newRole: role },
+  });
+
   logger.warn('ROLE_UPDATED', {
     targetUserId: id,
+    previousRole,
     newRole: role,
     performedBy: currentUser.id,
   });
@@ -131,13 +153,35 @@ export const deleteUser = async (id, currentUser) => {
 
   // 🔥 CRITICAL: Prevent self-delete
   if (currentUser.id === id) {
+    await logSecurityEvent({
+      userId: currentUser.id,
+      action: 'USER_DELETE_SELF_DENIED',
+      status: 'FAILURE',
+      ip: null,
+      userAgent: null,
+      metadata: { targetUserId: id },
+    });
     throw new AppError('You cannot delete your own account', 403, 'FORBIDDEN');
   }
 
+  const deletedEmail = user.email;
+  const deletedRole = user.role;
+
   await prisma.user.delete({ where: { id } });
+
+  // 📋 AUDIT: Persistent audit trail for user deletion
+  await logSecurityEvent({
+    userId: currentUser.id,
+    action: 'USER_DELETED',
+    status: 'SUCCESS',
+    ip: null,
+    userAgent: null,
+    metadata: { deletedUserId: id, deletedEmail, deletedRole },
+  });
 
   logger.warn('USER_DELETED', {
     deletedUserId: id,
+    deletedEmail,
     performedBy: currentUser.id,
   });
 

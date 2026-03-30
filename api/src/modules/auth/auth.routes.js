@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as authController from './auth.controller.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
-import { authLimiter, mfaLimiter } from '../../shared/middleware/rateLimiter.js';
+import { authLimiter, mfaLimiter, apiLimiter } from '../../shared/middleware/rateLimiter.js';
 import { validate, registerRules, loginRules, sessionIdParamRule } from '../../shared/middleware/validate.js';
 
 const router = Router();
@@ -19,15 +19,15 @@ router.post('/login', authLimiter, loginRules, validate, authController.login);
 // 🔐 SECURITY FIX: mfaLimiter (5 attempts/15min) replaces authLimiter to prevent TOTP brute-force
 router.post('/mfa/validate-login', mfaLimiter, authController.validateMfaLogin);
 
-// Cookie-based refresh
-router.post('/refresh', authController.refresh);
+// 🔒 SEC-12: Rate-limit refresh endpoint (prevents token rotation abuse)
+router.post('/refresh', authLimiter, authController.refresh);
 
 // ─────────────────────────────────────────────
 // Protected routes
 // ─────────────────────────────────────────────
 router.post('/logout', authenticate, authController.logout);
 
-router.get('/profile', authenticate, authController.getProfile);
+router.get('/profile', authenticate, apiLimiter, authController.getProfile);
 
 // ─────────────────────────────────────────────
 // Session management (IAM)

@@ -4,16 +4,17 @@ export const policies = [
     roles: ['ADMIN'],
     actions: ['*'],
     resources: ['*'],
-   condition: ({ context }) => {
-  const ip = context.ip;
-const cleanIP = ip.replace('::ffff:', '');
-
-return (
-  cleanIP === '127.0.0.1' ||
-  cleanIP === '::1' ||
-  cleanIP.startsWith('172.')
-);
-}
+    // 🔒 SEC-07: Restrict ADMIN to loopback + RFC 1918 private ranges (Docker/K8s)
+    condition: ({ context }) => {
+      const cleanIP = (context.ip || '').replace('::ffff:', '');
+      return (
+        cleanIP === '127.0.0.1' ||
+        cleanIP === '::1' ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(cleanIP) ||
+        cleanIP.startsWith('10.') ||
+        cleanIP.startsWith('192.168.')
+      );
+    }
   },
 
   // 🔒 SENSITIVE ACTION: Requires fully verified MFA lifecycle

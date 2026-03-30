@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import AppError from '../utils/AppError.js';
+import { extractClientInfo } from '../utils/clientInfo.js';
 
 // ───────────────────────────────────────────────────────────
 // Handle Prisma-specific errors
@@ -31,28 +32,26 @@ export const errorHandler = (err, req, res, next) => {
   let error = err;
 
   // ─────────────────────────────────────────────
-  // 1. Normalize unknown errors
+  // 🔒 SEC-17: Check specific error types FIRST (before generic normalization)
   // ─────────────────────────────────────────────
-  if (!(error instanceof AppError)) {
-    error = new AppError(err.message || 'Internal Server Error', 500, 'INTERNAL_ERROR');
-  }
 
-  // ─────────────────────────────────────────────
-  // 2. Handle Prisma errors
-  // ─────────────────────────────────────────────
+  // 1. Handle Prisma errors
   if (err.constructor?.name === 'PrismaClientKnownRequestError') {
     error = handlePrismaError(err);
   }
 
-  // ─────────────────────────────────────────────
-  // 3. Handle JWT errors
-  // ─────────────────────────────────────────────
-  if (err.name === 'JsonWebTokenError') {
+  // 2. Handle JWT errors
+  else if (err.name === 'JsonWebTokenError') {
     error = new AppError('Invalid token', 401, 'TOKEN_INVALID');
   }
 
-  if (err.name === 'TokenExpiredError') {
+  else if (err.name === 'TokenExpiredError') {
     error = new AppError('Token has expired', 401, 'TOKEN_EXPIRED');
+  }
+
+  // 3. Normalize remaining unknown errors
+  else if (!(error instanceof AppError)) {
+    error = new AppError(err.message || 'Internal Server Error', 500, 'INTERNAL_ERROR');
   }
 
   const statusCode = error.statusCode || 500;
@@ -67,7 +66,7 @@ export const errorHandler = (err, req, res, next) => {
       stack: err.stack,
       path: req.originalUrl,
       method: req.method,
-      ip: req.ip,
+      ip: extractClientInfo(req).ip,
       userId: req.user?.id || null,
     });
   } else {
@@ -76,7 +75,7 @@ export const errorHandler = (err, req, res, next) => {
       code: error.code,
       path: req.originalUrl,
       method: req.method,
-      ip: req.ip,
+      ip: extractClientInfo(req).ip,
       userId: req.user?.id || null,
     });
   }

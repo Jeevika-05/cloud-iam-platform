@@ -47,7 +47,7 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: development
+      NODE_ENV: production # 🚀 PROD: Enforce production env (enables secure cookies, strict CORS)
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
       REDIS_URL: redis://redis:6379
@@ -56,10 +56,8 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
     ports:
       - '${PORT:-3000}:3000'
-    volumes:
-      - .:/app
-      - /app/node_modules
-    command: npm run dev
+    # 🔒 PROD: No source volume mounts. Uses built Docker image only.
+    # command: npm run start (defaults to CMD in Dockerfile)
     networks:
       - backend
     healthcheck:
@@ -109,7 +107,6 @@ services:
 
 volumes:
   postgres_data:
-  
 
 networks:
   backend:
