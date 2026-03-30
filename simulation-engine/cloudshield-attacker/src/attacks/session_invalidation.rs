@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -44,7 +45,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<SessionInvalidationReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(SessionInvalidationReport, GraphEvent), String> {
 
     let mut latencies: Vec<u64> = Vec::new();
     let mut status_dist: HashMap<u16, usize> = HashMap::new();
@@ -208,7 +211,7 @@ pub async fn run(
     println!("[LOGOUT] Refresh token after logout: {}", if refresh_token_still_works { "🚨 WORKS" } else { "✅ REJECTED" });
     println!("[LOGOUT] Verdict                   : {}", verdict);
 
-    Ok(SessionInvalidationReport {
+    let report = SessionInvalidationReport {
         attack: "session_invalidation_logout".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         total_requests,
@@ -229,7 +232,18 @@ pub async fn run(
             refresh_token_still_works,
         },
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "SESSION_INVALID",
+        "/api/v1/auth/logout",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }
 
 fn compute_latency(latencies: &[u64]) -> LatencyStats {

@@ -11,6 +11,7 @@ pub struct ApiClient {
 pub struct LoginResult {
     pub access_token: String,
     pub refresh_token: String,
+    pub user_id: String,
 }
 
 /// Login that returned MFA_REQUIRED instead of tokens.
@@ -34,11 +35,21 @@ pub struct HttpResult {
 }
 
 impl ApiClient {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, attacker_ip: Option<&str>, attacker_agent: Option<&str>) -> Self {
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+        let mut headers = HeaderMap::new();
+        if let (Some(ip), Some(agent)) = (attacker_ip, attacker_agent) {
+            if let (Ok(h_ip), Ok(h_agent)) = (ip.parse::<HeaderValue>(), agent.parse::<HeaderValue>()) {
+                headers.insert("X-Forwarded-For", h_ip);
+                headers.insert("User-Agent", h_agent);
+            }
+        }
+
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
+            .default_headers(headers)
             .build()
             .expect("Failed to build HTTP client");
 
@@ -108,7 +119,10 @@ impl ApiClient {
         let access_token = json["data"]["accessToken"]
             .as_str().unwrap_or("").to_string();
 
-        Ok(LoginResult { access_token, refresh_token })
+        let user_id = json["data"]["user"]["id"]
+            .as_str().unwrap_or("").to_string();
+
+        Ok(LoginResult { access_token, refresh_token, user_id })
     }
 
     // ── Login (MFA path — expects tempToken back) ─

@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -33,11 +34,13 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<AttackReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(AttackReport, GraphEvent), String> {
     // Step 1 — Login to obtain a valid refresh token
     println!("[RACE] Step 1: Logging in...");
     let login = client.login(email, password).await?;
-    let stolen_token = login.refresh_token;
+    let stolen_token = login.refresh_token.clone();
     println!("[RACE] Got refresh token ({} chars)", stolen_token.len());
 
     // Step 2 — Fire CONCURRENCY requests with the SAME token
@@ -54,10 +57,14 @@ pub async fn run(
 
     // Collect results
     let mut results = Vec::with_capacity(CONCURRENCY);
+    let mut error_count: usize = 0;
     for h in handles {
         match h.await {
             Ok(r) => results.push(r),
-            Err(e) => eprintln!("[RACE] task panic: {}", e),
+            Err(e) => {
+                eprintln!("[RACE] task panic: {}", e);
+                error_count += 1;
+            }
         }
     }
 
@@ -66,13 +73,12 @@ pub async fn run(
 
     let mut success_count: usize = 0;
     let mut blocked_count: usize = 0;
-    let mut error_count: usize = 0;
     let mut status_dist: HashMap<u16, usize> = HashMap::new();
     let mut code_dist: HashMap<String, usize> = HashMap::new();
     let mut latencies: Vec<u64> = Vec::new();
 
     for r in &results {
-        if r.error.is_some() {
+        if r.status == 0 {
             error_count += 1;
             continue;
         }
@@ -114,10 +120,10 @@ pub async fn run(
     println!("[RACE] Results: {} ok, {} blocked, {} errors", success_count, blocked_count, error_count);
     println!("[RACE] Verdict: {}", verdict);
 
-    Ok(AttackReport {
+    let report = AttackReport {
         attack: "token_race_condition".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
-        total_requests: results.len(),
+        total_requests: CONCURRENCY,
         success_count,
         blocked_count,
         error_count,
@@ -125,5 +131,16 @@ pub async fn run(
         status_distribution: status_dist,
         detection_codes: code_dist,
         latency,
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "TOKEN_RACE",
+        "/api/v1/auth/refresh",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }

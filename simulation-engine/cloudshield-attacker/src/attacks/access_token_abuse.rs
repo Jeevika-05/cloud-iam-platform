@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 
@@ -19,7 +20,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<AccessTokenAbuseReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(AccessTokenAbuseReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Login and establish session
@@ -52,7 +55,7 @@ pub async fn run(
     println!("[ACCESS_ABUSE] Phase 2: Calling logout endpoint");
 
     let logout_res = client.logout(&access_token, &refresh_token).await;
-    
+
     if logout_res.status != 200 {
         println!("[ACCESS_ABUSE]   Warning: Logout returned status {}", logout_res.status);
     } else {
@@ -79,7 +82,7 @@ pub async fn run(
 
     // If using stateless JWTs without a blocklist, access tokens remain
     // valid until natural expiration even after the user logs out.
-    // The user requested to mark this as "WEAK" rather than "CRITICAL", 
+    // The user requested to mark this as "WEAK" rather than "CRITICAL",
     // unless the endpoint returns 401 which makes it "SECURE".
     let verdict = if valid_after_logout {
         "WEAK"
@@ -90,12 +93,23 @@ pub async fn run(
     println!();
     println!("[ACCESS_ABUSE] Verdict: {}", verdict);
 
-    Ok(AccessTokenAbuseReport {
+    let report = AccessTokenAbuseReport {
         attack: "access_token_abuse".into(),
         valid_before_logout,
         valid_after_logout,
         after_logout_status: profile_after.status,
         after_logout_code: profile_after.code,
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "ACCESS_TOKEN_ABUSE",
+        "/api/v1/auth/profile",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }

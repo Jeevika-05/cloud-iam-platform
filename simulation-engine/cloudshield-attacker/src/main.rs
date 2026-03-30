@@ -1,5 +1,7 @@
 mod client;
 mod attacks;
+mod event;
+use event::GraphEvent;
 
 use std::env;
 use std::time::Duration;
@@ -63,12 +65,24 @@ fn generate_attack_identity(attack_name: &str, base_password: &str) -> (String, 
     (email, password)
 }
 
-/// Pre-register an attack identity so the account exists before the attack runs.
-async fn ensure_identity(client: &ApiClient, email: &str, password: &str, name: &str) {
-    match client.register(email, password, name).await {
-        Ok(()) => println!("[SETUP] Registered: {}", email),
-        Err(_) => println!("[SETUP] Already exists: {}", email),
+/// Pre-register an attack identity and return its UUID.
+async fn ensure_identity(client: &ApiClient, email: &str, password: &str, name: &str) -> String {
+    let _ = client.register(email, password, name).await; // Ignore if already registered
+    match client.login(email, password).await {
+        Ok(res) => res.user_id,
+        Err(_) => {
+            // For MFA accounts, login returns an error "MFA_REQUIRED — use a non-MFA account"
+            // We can't trivially extract the user_id without authenticating MFA, but for test
+            // consistency, we'll return the email as a fallback if real UUID extraction fails.
+            email.to_string()
+        }
     }
+}
+
+
+
+fn emit_graph_event(event: GraphEvent, store: &mut Vec<GraphEvent>) {
+    store.push(event);
 }
 
 #[tokio::main]
@@ -87,19 +101,22 @@ async fn main() {
     println!("[CONFIG] Isolation: per-attack identities");
     println!();
 
-    let client = ApiClient::new(&target_url);
+    let client = ApiClient::new(&target_url, Some("127.0.0.1"), Some("Sim-Healthcheck"));
 
     wait_for_api(&client).await;
 
     let mut reports: Vec<serde_json::Value> = Vec::new();
+    let mut graph_events: Vec<GraphEvent> = Vec::new();
     let mut any_critical = false;
+    let execution_correlation_id = uuid::Uuid::new_v4().to_string();
 
     // ═══════════════════════════════════════════════
     //  ATK-01: Token Race Condition
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::TokenRace) {
         let (email, password) = generate_attack_identity("token-race", &base_password);
-        ensure_identity(&client, &email, &password, "ATK01-TokenRace").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.101"), Some("attack-sim-token-race"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK01-TokenRace").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -108,11 +125,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::token_race::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::token_race::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-01] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -135,7 +153,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::MfaReplay) {
         let (email, password) = generate_attack_identity("mfa", &base_password);
-        ensure_identity(&client, &email, &password, "ATK02-MFA").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.102"), Some("attack-sim-mfa"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK02-MFA").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -144,11 +163,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::mfa_replay::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::mfa_replay::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-02] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -172,6 +192,8 @@ async fn main() {
     if mode.should_run(&AttackMode::Idor) {
         // IDOR creates its own attacker+victim internally
         let (email, password) = generate_attack_identity("idor", &base_password);
+        let client = ApiClient::new(&target_url, Some("192.168.1.103"), Some("attack-sim-idor"));
+        let user_id = email.clone(); // IDOR registers its own users; fall back to email as ID
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -180,11 +202,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::idor::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::idor::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-03] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -207,7 +230,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::JwtTamper) {
         let (email, password) = generate_attack_identity("jwt", &base_password);
-        ensure_identity(&client, &email, &password, "ATK04-JWT").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.104"), Some("attack-sim-jwt"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK04-JWT").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -216,11 +240,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::jwt_tamper::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::jwt_tamper::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-04] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -243,7 +268,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::SessionReuse) {
         let (email, password) = generate_attack_identity("sess-reuse", &base_password);
-        ensure_identity(&client, &email, &password, "ATK05-SessReuse").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.105"), Some("attack-sim-sess-reuse"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK05-SessReuse").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -252,11 +278,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::session_reuse::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::session_reuse::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-05] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -280,7 +307,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::PasswordBrute) {
         let (email, password) = generate_attack_identity("brute", &base_password);
-        ensure_identity(&client, &email, &password, "ATK06-Brute").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.106"), Some("attack-sim-brute"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK06-Brute").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -289,11 +317,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::password_brute::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::password_brute::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-06] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -316,7 +345,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::SessionInvalidation) {
         let (email, password) = generate_attack_identity("logout", &base_password);
-        ensure_identity(&client, &email, &password, "ATK07-Logout").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.107"), Some("attack-sim-logout"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK07-Logout").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -325,11 +355,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::session_invalidation::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::session_invalidation::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-07] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -352,7 +383,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::RateFlood) {
         let (email, password) = generate_attack_identity("flood", &base_password);
-        ensure_identity(&client, &email, &password, "ATK08-Flood").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.108"), Some("attack-sim-flood"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK08-Flood").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -361,11 +393,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::rate_flood::run(&client, &email, &password).await {
-            Ok(report) => {
+        match attacks::rate_flood::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-08] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -388,7 +421,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::Csrf) {
         let (email, password) = generate_attack_identity("csrf", &base_password);
-        ensure_identity(&client, &email, &password, "ATK09-Csrf").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.109"), Some("attack-sim-csrf"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK09-Csrf").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -397,11 +431,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::csrf::run(&client, &email, &password).await {
-            Ok(report) => {
+        match attacks::csrf::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-09] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -424,7 +459,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::MassAssignment) {
         let (email, password) = generate_attack_identity("mass", &base_password);
-        ensure_identity(&client, &email, &password, "ATK10-MassAssign").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.110"), Some("attack-sim-mass"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK10-MassAssign").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -433,11 +469,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::mass_assignment::run(&client, &email, &password).await {
-            Ok(report) => {
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::mass_assignment::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-10] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -460,7 +497,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::AccessTokenAbuse) {
         let (email, password) = generate_attack_identity("token-abuse", &base_password);
-        ensure_identity(&client, &email, &password, "ATK11-TokenAbuse").await;
+        let client = ApiClient::new(&target_url, Some("192.168.1.111"), Some("attack-sim-token-abuse"));
+        let user_id = ensure_identity(&client, &email, &password, "ATK11-TokenAbuse").await;
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -469,12 +507,12 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::access_token_abuse::run(&client, &email, &password).await {
-            Ok(report) => {
-                // Weak is bad but not technically critical in stateless scenarios
-                if report.verdict == "CRITICAL" { any_critical = true; }
+        match attacks::access_token_abuse::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
-                println!("[ATK-11] Verdict: {}", report.verdict);
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
                 reports.push(val);
             }
             Err(e) => {
@@ -501,7 +539,8 @@ async fn main() {
         "attack_mode": format!("{:?}", mode),
         "isolation": "per-attack-identity",
         "total_attacks": reports.len(),
-        "results": reports
+        "results": reports,
+        "graph_events": graph_events
     });
 
     let json = serde_json::to_string_pretty(&full_report).unwrap();

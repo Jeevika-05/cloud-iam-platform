@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -42,7 +43,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<SessionReuseReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(SessionReuseReport, GraphEvent), String> {
 
     let mut latencies: Vec<u64> = Vec::new();
     let mut status_dist: HashMap<u16, usize> = HashMap::new();
@@ -172,7 +175,7 @@ pub async fn run(
 
     let total_requests = success_count + blocked_count + error_count;
 
-    Ok(SessionReuseReport {
+    let report = SessionReuseReport {
         attack: "sequential_token_reuse".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         total_requests,
@@ -191,7 +194,18 @@ pub async fn run(
             new_token_works: first_refresh_ok,
         },
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "SESSION_REUSE",
+        "/api/v1/auth/refresh",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }
 
 fn compute_latency(latencies: &[u64]) -> LatencyStats {

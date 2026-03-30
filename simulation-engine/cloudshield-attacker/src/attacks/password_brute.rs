@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -63,7 +64,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     _password: &str,
-) -> Result<PasswordBruteReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(PasswordBruteReport, GraphEvent), String> {
 
     let passwords = bad_passwords();
     let attempt_count = passwords.len().min(MAX_ATTEMPTS);
@@ -188,7 +191,7 @@ pub async fn run(
     println!("[BRUTE] Avg latency    : {}ms", latency.avg_ms);
     println!("[BRUTE] Verdict        : {}", verdict);
 
-    Ok(PasswordBruteReport {
+    let report = PasswordBruteReport {
         attack: "password_brute_force".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         total_requests,
@@ -208,7 +211,18 @@ pub async fn run(
             block_code,
         },
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "PASSWORD_BRUTE",
+        "/api/v1/auth/login",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }
 
 fn compute_latency(latencies: &[u64]) -> LatencyStats {

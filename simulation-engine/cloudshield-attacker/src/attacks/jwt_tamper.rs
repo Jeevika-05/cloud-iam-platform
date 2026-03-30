@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use serde_json::Value;
@@ -87,7 +88,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<JwtTamperReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(JwtTamperReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Obtain a legitimate JWT
@@ -443,7 +446,7 @@ pub async fn run(
 
     println!("[JWT] Verdict: {}", verdict);
 
-    Ok(JwtTamperReport {
+    let report = JwtTamperReport {
         attack: "jwt_tampering_signature_validation".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         original_valid,
@@ -451,7 +454,18 @@ pub async fn run(
         test_cases,
         summary,
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "JWT_TAMPER",
+        "/api/v1/auth/profile",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }
 
 // ── Base64url helpers (no padding) ───────────────

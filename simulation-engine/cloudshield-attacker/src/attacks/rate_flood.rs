@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -48,7 +49,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<RateFloodReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(RateFloodReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Login to get a valid access token
@@ -202,7 +205,7 @@ pub async fn run(
     println!("[FLOOD] Latency p99 : {}ms", p99);
     println!("[FLOOD] Verdict     : {}", verdict);
 
-    Ok(RateFloodReport {
+    let report = RateFloodReport {
         attack: "api_rate_flood".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         total_requests: total,
@@ -222,7 +225,18 @@ pub async fn run(
             p99_latency_ms: p99,
         },
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "RATE_FLOOD",
+        "/api/v1/auth/profile",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }
 
 struct RequestResult {

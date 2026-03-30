@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -58,7 +59,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<MfaAttackReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(MfaAttackReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 0 — Setup: register + enable MFA
@@ -276,7 +279,7 @@ pub async fn run(
     println!();
     println!("[MFA] Verdict: {}", verdict);
 
-    Ok(MfaAttackReport {
+    let report = MfaAttackReport {
         attack: "mfa_replay_brute_force".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         identity: mfa_email,
@@ -284,5 +287,16 @@ pub async fn run(
         replay: replay_result,
         brute_force: brute_force_result,
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "MFA_REPLAY",
+        "/api/v1/mfa/verify",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }

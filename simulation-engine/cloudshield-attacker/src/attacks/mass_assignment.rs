@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 
@@ -19,7 +20,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<MassAssignmentReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(MassAssignmentReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Login as a normal USER
@@ -32,17 +35,18 @@ pub async fn run(
 
     let access_token = login.access_token.clone();
     let account_info = client.get_authenticated("/api/v1/auth/profile", &access_token).await;
-    
+
     if account_info.status != 200 {
         return Err(format!("Could not fetch initial profile: status={}", account_info.status));
     }
 
     let initial_role = account_info.body["data"]["user"]["role"].as_str().unwrap_or("USER").to_string();
-    let user_id = account_info.body["data"]["user"]["id"].as_str().unwrap_or("").to_string();
+    // Use a distinct local name to avoid shadowing the `user_id` parameter
+    let profile_user_id = account_info.body["data"]["user"]["id"].as_str().unwrap_or("").to_string();
 
     println!("[MASS_ASSIGN]   Logged in successfully");
     println!("[MASS_ASSIGN]   Current Role: {}", initial_role);
-    println!("[MASS_ASSIGN]   User ID: {}", user_id);
+    println!("[MASS_ASSIGN]   User ID: {}", profile_user_id);
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 2 — Attempt Mass Assignment
@@ -70,7 +74,7 @@ pub async fn run(
     // Attack Target 1: The user-requested generic profile endpoint
     let target1 = "/api/v1/users/profile".to_string();
     // Attack Target 2: The specific user ID endpoint (in case the system uses that instead)
-    let target2 = format!("/api/v1/users/{}", user_id);
+    let target2 = format!("/api/v1/users/{}", profile_user_id);
 
     let mut attack_result = client.patch_authenticated(&target1, &access_token, &malicious_payload).await;
     let mut chosen_target = target1.clone();
@@ -105,7 +109,7 @@ pub async fn run(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     let verdict = if escalation_success {
-        "CRITICAL" 
+        "CRITICAL"
     } else {
         "SECURE"
     };
@@ -113,12 +117,23 @@ pub async fn run(
     println!();
     println!("[MASS_ASSIGN] Verdict: {}", verdict);
 
-    Ok(MassAssignmentReport {
+    let report = MassAssignmentReport {
         attack: "mass_assignment".into(),
         attempted_fields,
         endpoint_status: attack_result.status,
         endpoint_code: attack_result.code,
         escalation_success,
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "MASS_ASSIGNMENT",
+        "/api/v1/users/role",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }

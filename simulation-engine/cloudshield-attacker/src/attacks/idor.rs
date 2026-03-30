@@ -1,3 +1,4 @@
+use crate::event::GraphEvent;
 use crate::client::{ApiClient, HttpResult};
 use serde::Serialize;
 use serde_json::Value;
@@ -31,16 +32,18 @@ pub struct IdorProbe {
 
 pub async fn run(
     client: &ApiClient,
-    base_email: &str,
+    email: &str,
     password: &str,
-) -> Result<IdorReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(IdorReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Setup: Register & login two users
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    let attacker_email = format!("idor-attacker-{}", base_email);
-    let victim_email = format!("idor-victim-{}", base_email);
+    let attacker_email = format!("idor-attacker-{}", email);
+    let victim_email = format!("idor-victim-{}", email);
 
     println!("[IDOR] Phase 1: Setting up attacker + victim accounts");
     println!("[IDOR]   Attacker: {}", attacker_email);
@@ -247,7 +250,7 @@ pub async fn run(
     }
     println!("[IDOR] Verdict: {}", verdict);
 
-    Ok(IdorReport {
+    let report = IdorReport {
         attack: "idor_authorization_bypass".into(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         attacker_email,
@@ -256,8 +259,18 @@ pub async fn run(
         victim_id,
         probes,
         verdict: verdict.into(),
-    })
-}
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "IDOR",
+        "/api/v1/users",
+        &report.verdict,
+    );
+
+    Ok((report, event))}
 
 // ── Helpers ──────────────────────────────────────
 

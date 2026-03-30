@@ -1,6 +1,6 @@
+use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
-use serde_json::Value;
 
 // ── Report structures ────────────────────────────
 
@@ -20,7 +20,9 @@ pub async fn run(
     client: &ApiClient,
     email: &str,
     password: &str,
-) -> Result<CsrfReport, String> {
+    user_id: &str,
+    correlation_id: &str,
+) -> Result<(CsrfReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Login to get a valid refresh token cookie
@@ -39,18 +41,18 @@ pub async fn run(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     let target_endpoint = "/api/v1/auth/logout";
-    
+
     println!("[CSRF] Phase 2: Sending POST to {} WITHOUT Authorization header...", target_endpoint);
     println!("[CSRF]   (Simulating cross-site request where browser automatically attaches cookie)");
 
-    let Result = client
+    let result = client
         .post_with_cookie(target_endpoint, "refreshToken", &refresh_token)
         .await;
 
-    println!("[CSRF]   Response status: {}", Result.status);
-    println!("[CSRF]   Response code  : {}", Result.code);
+    println!("[CSRF]   Response status: {}", result.status);
+    println!("[CSRF]   Response code  : {}", result.code);
 
-    let request_success = Result.status == 200 || Result.status == 201;
+    let request_success = result.status == 200 || result.status == 201;
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  VERDICT
@@ -65,12 +67,23 @@ pub async fn run(
     println!();
     println!("[CSRF] Verdict: {}", verdict);
 
-    Ok(CsrfReport {
+    let report = CsrfReport {
         attack: "csrf".into(),
         endpoint: target_endpoint.into(),
         used_cookie_only: true,
-        status: Result.status,
+        status: result.status,
         request_success,
         verdict: verdict.into(),
-    })
+    };
+
+    let event = GraphEvent::new(
+        correlation_id,
+        user_id,
+        Some(email.to_string()),
+        "CSRF",
+        "/api/v1/auth/logout",
+        &report.verdict,
+    );
+
+    Ok((report, event))
 }
