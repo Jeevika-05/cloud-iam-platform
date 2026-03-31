@@ -2,7 +2,6 @@ use crate::event::GraphEvent;
 use crate::client::ApiClient;
 use serde::Serialize;
 use std::collections::HashMap;
-use totp_rs::{Algorithm, TOTP, Secret};
 
 const BRUTE_FORCE_ATTEMPTS: usize = 15;
 
@@ -15,20 +14,6 @@ pub struct MfaAttackReport {
     pub blocked_count: usize,
     pub status_distribution: HashMap<u16, usize>,
     pub verdict: String,
-}
-
-// ── TOTP helper ──────────────────────────────────
-
-fn generate_totp_code(secret_base32: &str) -> Result<String, String> {
-    let secret = Secret::Encoded(secret_base32.to_string())
-        .to_bytes()
-        .map_err(|e| format!("bad TOTP secret: {}", e))?;
-
-    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)
-        .map_err(|e| format!("TOTP init error: {}", e))?;
-
-    Ok(totp.generate_current()
-        .map_err(|e| format!("TOTP generate error: {}", e))?)
 }
 
 // ── Attack implementation ────────────────────────
@@ -93,41 +78,9 @@ pub async fn run(
 ) -> Result<(MfaAttackReport, GraphEvent), String> {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  PHASE 0 — Setup: register + enable MFA
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    println!("[MFA] Phase 0: Setting up MFA-enabled account...");
-
-    // Register (ignore duplicate error)
-    let _ = client.register(email, password, "MFA-Attacker").await;
-
-    // Try normal login first — if it works, MFA isn't enabled yet
-    match client.login(email, password).await {
-        Ok(login) => {
-            let access_token = login.access_token.clone();
-            println!("[MFA]   Logged in (MFA not yet enabled)");
-
-            let secret = client.mfa_setup(&access_token).await
-                .map_err(|e| format!("MFA setup failed: {}", e))?;
-            println!("[MFA]   TOTP secret received");
-
-            let valid_code = generate_totp_code(&secret)?;
-            client.mfa_verify(&access_token, &valid_code).await
-                .map_err(|e| format!("MFA verify failed: {}", e))?;
-            println!("[MFA]   MFA enabled successfully");
-        }
-        Err(e) => {
-            if e.contains("MFA_REQUIRED") {
-                println!("[MFA]   MFA already enabled (re-run detected)");
-            } else {
-                return Err(format!("initial login failed: {}", e));
-            }
-        }
-    };
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  PHASE 1 — Run New Attack
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 
     println!();
     let report = mfa_brute_force_single_ip(client, email, password).await?;

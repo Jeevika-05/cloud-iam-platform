@@ -1,4 +1,4 @@
-import { extractClientInfo } from '../utils/clientInfo.js';
+import { extractClientInfo, getClientIp } from '../utils/clientInfo.js';
 import logger from '../utils/logger.js';
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
@@ -36,16 +36,18 @@ export const mfaLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
+    const ip = getClientIp(req);
+
     try {
       const tempToken = req.body?.tempToken;
-      if (!tempToken) return `mfa-${extractClientInfo(req).ip}`;
+      if (!tempToken) return `mfa-ip:${ip}`;
 
       const decoded = verifyTempToken(tempToken);
 
       // per-user limiter (prevents distributed MFA attacks)
       return `mfa:${decoded.sub}`;
     } catch {
-      return `mfa-${extractClientInfo(req).ip}`;
+      return `mfa-ip:${ip}`;
     }
   },
   message: {

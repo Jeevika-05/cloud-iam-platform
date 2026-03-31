@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import speakeasy from 'speakeasy';
+import { encrypt } from '../src/shared/utils/cipher.js';
 
 const prisma = new PrismaClient();
 
@@ -24,7 +26,7 @@ async function main() {
     {
       name:     'Security Analyst',
       email:    'analyst@example.com',
-      role:     'SECURITY_ANALYST',             // ← updated
+      role:     'SECURITY_ANALYST',             
       password: DEFAULT_PASSWORDS.SECURITY_ANALYST,
     },
     {
@@ -33,10 +35,30 @@ async function main() {
       role:     'USER',
       password: DEFAULT_PASSWORDS.USER,
     },
+    {
+      name:     'Admin Attack (MFA Test)',
+      email:    process.env.MFA_TARGET_EMAIL || 'admin_attack@example.com',
+      role:     'ADMIN',
+      password: process.env.MFA_TARGET_PASSWORD || DEFAULT_PASSWORDS.ADMIN,
+      totp:     true,
+    },
   ];
 
   for (const userData of users) {
     const hashedPassword = await bcrypt.hash(userData.password, BCRYPT_ROUNDS);
+
+    let totpData = {};
+    if (userData.totp) {
+      const secret = speakeasy.generateSecret().base32;
+      const version = Number(process.env.ACTIVE_KEY_VERSION);
+      const encryptedSecret = encrypt(secret, version);
+
+      totpData = {
+        totpSecret: encryptedSecret,
+        totpEnabled: true,
+        totpSecretKeyVersion: version
+      };
+    }
 
     const user = await prisma.user.upsert({
       where:  { email: userData.email.toLowerCase().trim() },
@@ -46,8 +68,10 @@ async function main() {
         email:    userData.email.toLowerCase().trim(),
         password: hashedPassword,
         role:     userData.role,
+        ...totpData
       },
     });
+
 
     console.log(`✅ Seeded user: ${user.email} [${user.role}]`);
   }

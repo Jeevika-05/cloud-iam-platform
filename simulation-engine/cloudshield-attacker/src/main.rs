@@ -13,6 +13,7 @@ enum AttackMode {
     All,
     TokenRace,
     MfaReplay,
+    MfaDistributed,
     Idor,
     JwtTamper,
     SessionReuse,
@@ -33,6 +34,7 @@ impl AttackMode {
         {
             s if s == "token_race" || s == "atk01" || s == "atk-01" => AttackMode::TokenRace,
             s if s == "mfa_replay" || s == "mfa_brute_force_single_ip" || s == "atk02" || s == "atk-02" => AttackMode::MfaReplay,
+            s if s == "mfa_brute_force_distributed" || s == "atk12" || s == "atk-12" => AttackMode::MfaDistributed,
             s if s == "idor" || s == "atk03" || s == "atk-03" => AttackMode::Idor,
             s if s == "jwt_tamper" || s == "atk04" || s == "atk-04" => AttackMode::JwtTamper,
             s if s == "session_reuse" || s == "atk05" || s == "atk-05" => AttackMode::SessionReuse,
@@ -152,9 +154,13 @@ async fn main() {
     //  ATK-02: MFA Replay + Brute Force
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::MfaReplay) {
-        let (email, password) = generate_attack_identity("mfa", &base_password);
+        let email = env::var("MFA_TARGET_EMAIL").unwrap_or_else(|_| "admin_attack@example.com".into());
+        let password = env::var("MFA_TARGET_PASSWORD").unwrap_or_else(|_| "Admin@1234!".into());
         let client = ApiClient::new(&target_url, Some("192.168.1.102"), Some("attack-sim-mfa"));
-        let user_id = ensure_identity(&client, &email, &password, "ATK02-MFA").await;
+        let user_id = match client.login(&email, &password).await {
+            Ok(res) => res.user_id,
+            Err(_) => email.clone(), // fallback since MFA_REQUIRED will be returned
+        };
 
         println!();
         println!("═══════════════════════════════════════════");
@@ -528,6 +534,48 @@ async fn main() {
     } else {
         println!();
         println!("[SKIP] ATK-11 (Access Token Abuse) — not selected");
+    }
+
+    // ═══════════════════════════════════════════════
+    //  ATK-12: MFA Distributed Brute Force
+    // ═══════════════════════════════════════════════
+    if mode.should_run(&AttackMode::MfaDistributed) {
+        let email = env::var("MFA_TARGET_EMAIL").unwrap_or_else(|_| "admin_attack@example.com".into());
+        let password = env::var("MFA_TARGET_PASSWORD").unwrap_or_else(|_| "Admin@1234!".into());
+        let client = ApiClient::new(&target_url, Some("192.168.1.112"), Some("attack-sim-mfa-dist"));
+        let user_id = match client.login(&email, &password).await {
+            Ok(res) => res.user_id,
+            Err(_) => email.clone(), // fallback since MFA_REQUIRED will be returned
+        };
+
+        println!();
+        println!("═══════════════════════════════════════════");
+        println!("  ATK-12 ▸ MFA Distributed Brute Force");
+        println!("  Identity: {}", email);
+        println!("═══════════════════════════════════════════");
+        println!();
+
+        match attacks::mfa_distributed::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+            Ok((report, event)) => {
+                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                let val = serde_json::to_value(&report).unwrap();
+                emit_graph_event(event, &mut graph_events);
+                println!("[ATK] Verdict: {}", report.verdict);
+                reports.push(val);
+            }
+            Err(e) => {
+                eprintln!("[ATK-12] FAILED: {}", e);
+                reports.push(serde_json::json!({
+                    "attack": "mfa_brute_force_distributed",
+                    "identity": email,
+                    "verdict": "ERROR",
+                    "error": e
+                }));
+            }
+        }
+    } else {
+        println!();
+        println!("[SKIP] ATK-12 (MFA Distributed) — not selected");
     }
 
     // ═══════════════════════════════════════════════

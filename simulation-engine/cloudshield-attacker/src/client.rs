@@ -59,6 +59,10 @@ impl ApiClient {
         }
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     // ── Health ────────────────────────────────────
 
     pub async fn health_check(&self) -> Result<bool, String> {

@@ -23,13 +23,14 @@ pub struct GraphEvent {
 }
 
 impl GraphEvent {
-    pub fn new(
+    pub fn new_with_ip(
         correlation_id: &str,
         user_id: &str,
         user_email: Option<String>,
         action: &str,
         target_endpoint: &str,
         result: &str,
+        source_ip: String,
     ) -> Self {
         let severity = if result == "VULNERABLE" || result == "CRITICAL" { "HIGH" } else { "LOW" }.to_string();
         Self {
@@ -39,7 +40,7 @@ impl GraphEvent {
             user_email,
             event_type: "ATTACK".to_string(),
             action: action.to_string(),
-            source_ip: "192.168.1.100".to_string(),
+            source_ip,
             ip_type: "SIMULATED".to_string(),
             user_agent: "attack-engine".to_string(),
             agent_type: "SIMULATED".to_string(),
@@ -49,5 +50,24 @@ impl GraphEvent {
             severity,
             timestamp: Utc::now().to_rfc3339(),
         }
+    }
+
+    pub fn new(
+        correlation_id: &str,
+        user_id: &str,
+        user_email: Option<String>,
+        action: &str,
+        target_endpoint: &str,
+        result: &str,
+    ) -> Self {
+        Self::new_with_ip(
+            correlation_id,
+            user_id,
+            user_email,
+            action,
+            target_endpoint,
+            result,
+            "192.168.1.100".to_string(),
+        )
     }
 }

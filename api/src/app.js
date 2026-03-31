@@ -40,7 +40,7 @@ const app = express();
 // TRUST PROXY
 // ─────────────────────────────────────────────
 // 🔒 SEC-05: Trust only 1 proxy hop (prevents X-Forwarded-For spoofing)
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 // ─────────────────────────────────────────────
 // REQUEST ID (for tracing)
@@ -113,6 +113,13 @@ app.use(apiLimiter);
 // ─────────────────────────────────────────────
 // HEALTH CHECK
 // ─────────────────────────────────────────────
+app.use((req, res, next) => {
+  console.log("DEBUG req.ip:", req.ip);
+  console.log("DEBUG x-forwarded-for:", req.headers['x-forwarded-for']);
+  console.log("DEBUG socket:", req.socket.remoteAddress);
+  next();
+});
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',

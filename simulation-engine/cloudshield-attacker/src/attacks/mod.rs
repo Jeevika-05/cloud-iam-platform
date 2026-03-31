@@ -9,3 +9,4 @@ pub mod rate_flood;
 pub mod csrf;
 pub mod mass_assignment;
 pub mod access_token_abuse;
+pub mod mfa_distributed;
