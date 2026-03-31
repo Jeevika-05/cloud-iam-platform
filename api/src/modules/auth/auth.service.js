@@ -1,9 +1,10 @@
-import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
+import jwtLib from 'jsonwebtoken';
 import prisma from '../../shared/config/database.js';
+import config from '../../shared/config/index.js';
 import AppError from '../../shared/utils/AppError.js';
 import logger from '../../shared/utils/logger.js';
+import { hashPassword, verifyPassword, dummyVerify } from '../../shared/utils/password.js';
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -14,8 +15,7 @@ import {
 import { logSecurityEvent } from './audit.service.js';
 import { SECURITY_CONFIG } from '../../shared/config/security.js';
 
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
-const MAX_SESSIONS = 5; // optional limit
+const MAX_SESSIONS = config.security.maxSessions;
 
 // ─────────────────────────────────────────────
 // REGISTER
@@ -31,7 +31,7 @@ export const register = async ({ name, email, password, ipAddress, userAgent }) 
     throw new AppError('Email already registered', 409, 'DUPLICATE_EMAIL');
   }
 
-  const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const hashedPassword = await hashPassword(password);
 
   const user = await prisma.user.create({
     data: {
@@ -59,9 +59,9 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
     where: { email: normalizedEmail },
   });
 
-  // Prevent user enumeration
+  // Prevent user enumeration — dummy hash burns same CPU time
   if (!user) {
-    await bcrypt.compare(password, '$2b$12$invalidhashplaceholderXXXXXXXXXXXXXXXXXXXXXXXXXX');
+    await dummyVerify(password);
     logger.warn('LOGIN_FAILED', { email: normalizedEmail, ip: ipAddress });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
@@ -76,7 +76,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
 );
   }
 
-  const isMatch = await bcrypt.compare(password, user.password);
+  const isMatch = await verifyPassword(user.password, password);
 
   if (!isMatch) {
     // Increment failedLoginAttempts
@@ -183,7 +183,6 @@ export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userA
 
   // Re-use core IAM MFA tracking natively (DO NOT BYPASS)
   if (user.totpEnabled) {
-    const { generateTempToken } = await import('../../shared/utils/jwt.js');
     const tempToken = generateTempToken(user);
     return { status: "MFA_REQUIRED", tempToken };
   }
@@ -219,7 +218,6 @@ export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent }
     },
     data: {
       lastTempTokenJti: decoded.jti,
-      // PATCH 4: Add Timestamp Tracking
       lastTempTokenUsedAt: new Date()
     }
   });
@@ -228,7 +226,7 @@ export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent }
     throw new AppError("Temp token already used", 401, "TOKEN_REUSE_DETECTED");
   }
 
-  // 🛡 Patch 2: Decrypt TOTP Secret
+  // Decrypt TOTP Secret
   const { decrypt } = await import('../../shared/utils/cipher.js');
   
   if (user.totpSecret && !user.totpSecretKeyVersion) {
@@ -278,7 +276,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     decoded = verifyRefreshToken(token);
   } catch (err) {
     // Basic verify failed, but could be reuse/compromise attempts
-    const attemptDecoded = jwt.decode(token);
+    const attemptDecoded = jwtLib.decode(token);
     if (attemptDecoded?.sub) {
        logger.warn('TOKEN_REUSE_DETECTED_INVALID_SIG', { userId: attemptDecoded.sub, ipAddress });
     }
@@ -314,7 +312,6 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
       data: { revoked: true }
     });
 
-    // 📋 AUDIT: Persist token reuse detection event
     await logSecurityEvent({
       userId: decoded.sub,
       action: 'TOKEN_REUSE_DETECTED',
@@ -346,9 +343,10 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     );
   }
 
-  // Validate hashed token
+  // Validate hashed token — use Argon2 verification
   if (session.refreshTokenHash) {
-    const isTokenMatch = await bcrypt.compare(token, session.refreshTokenHash);
+    const { verifyPassword: verifyHash } = await import('../../shared/utils/password.js');
+    const isTokenMatch = await verifyHash(session.refreshTokenHash, token);
     if (!isTokenMatch) {
       logger.warn('TOKEN_MISMATCH_REUSE_DETECTED', { userId: session.userId, jti: decoded.jti, ipAddress });
       await prisma.session.updateMany({
@@ -406,7 +404,6 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
 
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent });
 
-  // 📋 AUDIT: Persist successful token refresh
   await logSecurityEvent({
     userId: safeUser.id,
     action: 'TOKEN_REFRESHED',
@@ -443,13 +440,11 @@ export const logout = async (token) => {
     throw new AppError('Session already invalid', 400, 'LOGOUT_FAILED');
   }
 
-  // 🚪 Logical logout (audit preserve)
   await prisma.session.update({
     where: { id: decoded.jti },
     data: { revoked: true }
   });
 
-  // 📋 AUDIT: Persist logout event
   await logSecurityEvent({
     userId: decoded.sub,
     action: 'LOGOUT',
@@ -542,7 +537,6 @@ export const revokeSession = async (sessionId, userId) => {
     data: { revoked: true }
   });
 
-  // 📋 AUDIT: Persist single session revocation
   await logSecurityEvent({
     userId,
     action: 'SESSION_REVOKED',
@@ -564,7 +558,6 @@ export const revokeAllSessions = async (userId) => {
     data: { revoked: true }
   });
 
-  // 📋 AUDIT: Persist all-sessions revocation
   await logSecurityEvent({
     userId,
     action: 'ALL_SESSIONS_REVOKED',
@@ -598,18 +591,17 @@ const issueTokens = async (user, { ipAddress, userAgent, mfaVerified = false } =
     sub: user.id,
     email: user.email,
     role: user.role,
-    jti:jti
+    jti: jti
   };
 
- 
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload, jti);
 
-  const decoded = jwt.decode(refreshToken);
+  const decoded = jwtLib.decode(refreshToken);
   const expiresAt = new Date(decoded.exp * 1000);
 
-  // 🔄 Hash refresh token for secure storage
-  const refreshTokenHash = await bcrypt.hash(refreshToken, BCRYPT_ROUNDS);
+  // Hash refresh token with Argon2 for secure storage
+  const refreshTokenHash = await hashPassword(refreshToken);
 
   await prisma.session.create({
     data: {

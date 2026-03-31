@@ -4,6 +4,7 @@ import prisma from '../../shared/config/database.js';
 import AppError from '../../shared/utils/AppError.js';
 import { logSecurityEvent } from './audit.service.js';
 import { encrypt, decrypt } from '../../shared/utils/cipher.js';
+import { encryption } from '../../shared/config/index.js';
 
 export const setupMfa = async (userId) => {
   const secret = speakeasy.generateSecret({
@@ -12,9 +13,8 @@ export const setupMfa = async (userId) => {
 
   const qr = await qrcode.toDataURL(secret.otpauth_url);
 
-  // store encrypted secret temporarily
-  const version = Number(process.env.ACTIVE_KEY_VERSION);
-  if (!version) throw new Error("ACTIVE_KEY_VERSION missing");
+  // Store encrypted secret using active key version from config
+  const version = encryption.activeKeyVersion;
 
   const encryptedSecret = encrypt(secret.base32, version);
 

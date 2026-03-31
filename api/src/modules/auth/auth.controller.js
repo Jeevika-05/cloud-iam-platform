@@ -2,11 +2,13 @@ import { extractClientInfo } from '../../shared/utils/clientInfo.js';
 import * as authService from './auth.service.js';
 import * as googleAuthService from './googleAuth.service.js';
 import { successResponse } from '../../shared/utils/response.js';
+import { loginCounter, mfaCounter, loginDuration } from '../../metrics/metrics.js';
+import { app as appConfig } from '../../shared/config/index.js';
 
 // Cookie config (reuse everywhere)
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: appConfig.isProduction,
   sameSite: 'strict',
   path: '/api/v1/auth', // restrict cookie scope
 };
@@ -82,6 +84,7 @@ export const register = async (req, res, next) => {
 // LOGIN
 // ─────────────────────────────────────────────
 export const login = async (req, res, next) => {
+  const end = loginDuration.startTimer();
   try {
     const { email, password } = req.body;
 
@@ -93,8 +96,13 @@ export const login = async (req, res, next) => {
     });
 
     if (result.status === 'MFA_REQUIRED') {
+      loginCounter.inc({ status: 'mfa_required' });
+      end();
       return successResponse(res, result, 'MFA token required');
     }
+
+    loginCounter.inc({ status: 'success' });
+    end();
 
     // Set refresh token in cookie
     res.cookie('refreshToken', result.refreshToken, {
@@ -111,6 +119,8 @@ export const login = async (req, res, next) => {
       'Login successful'
     );
   } catch (err) {
+    loginCounter.inc({ status: 'failure' });
+    end();
     next(err);
   }
 };
@@ -129,6 +139,8 @@ export const validateMfaLogin = async (req, res, next) => {
       userAgent: extractClientInfo(req).userAgent,
     });
 
+    mfaCounter.inc({ status: 'success' });
+
     // Set refresh token in cookie
     res.cookie('refreshToken', result.refreshToken, {
       ...REFRESH_COOKIE_OPTIONS,
@@ -144,6 +156,7 @@ export const validateMfaLogin = async (req, res, next) => {
       'Login successful'
     );
   } catch (err) {
+    mfaCounter.inc({ status: 'failure' });
     next(err);
   }
 };

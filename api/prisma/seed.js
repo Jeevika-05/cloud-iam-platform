@@ -1,18 +1,25 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+import argon2 from 'argon2';
 import speakeasy from 'speakeasy';
 import { encrypt } from '../src/shared/utils/cipher.js';
+import config from '../src/shared/config/index.js';
 
 const prisma = new PrismaClient();
 
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+// Argon2id parameters from centralized config
+const ARGON2_OPTIONS = {
+  type:        argon2.argon2id,
+  memoryCost:  config.hashing.memoryCost,
+  timeCost:    config.hashing.timeCost,
+  parallelism: config.hashing.parallelism,
+  hashLength:  config.hashing.hashLength,
+};
 
-// 🔐 Do NOT hardcode passwords in production — use env vars
 const DEFAULT_PASSWORDS = {
-  ADMIN:            process.env.SEED_ADMIN_PASSWORD    || 'Admin@1234!',
-  SECURITY_ANALYST: process.env.SEED_ANALYST_PASSWORD  || 'Analyst@1234!',
-  USER:             process.env.SEED_USER_PASSWORD      || 'User@1234!',
+  ADMIN:            config.seed.adminPassword,
+  SECURITY_ANALYST: config.seed.analystPassword,
+  USER:             config.seed.userPassword,
 };
 
 async function main() {
@@ -37,20 +44,20 @@ async function main() {
     },
     {
       name:     'Admin Attack (MFA Test)',
-      email:    process.env.MFA_TARGET_EMAIL || 'admin_attack@example.com',
+      email:    config.seed.mfaTargetEmail,
       role:     'ADMIN',
-      password: process.env.MFA_TARGET_PASSWORD || DEFAULT_PASSWORDS.ADMIN,
+      password: config.seed.mfaTargetPassword || DEFAULT_PASSWORDS.ADMIN,
       totp:     true,
     },
   ];
 
   for (const userData of users) {
-    const hashedPassword = await bcrypt.hash(userData.password, BCRYPT_ROUNDS);
+    const hashedPassword = await argon2.hash(userData.password, ARGON2_OPTIONS);
 
     let totpData = {};
     if (userData.totp) {
       const secret = speakeasy.generateSecret().base32;
-      const version = Number(process.env.ACTIVE_KEY_VERSION);
+      const version = config.encryption.activeKeyVersion;
       const encryptedSecret = encrypt(secret, version);
 
       totpData = {
@@ -73,7 +80,7 @@ async function main() {
     });
 
 
-    console.log(`✅ Seeded user: ${user.email} [${user.role}]`);
+    console.log(`✅ Seeded user: ${user.email} [${user.role}] (Argon2id)`);
   }
 }
 

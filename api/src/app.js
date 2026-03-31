@@ -1,22 +1,5 @@
 import express from 'express';
 import helmet from 'helmet';
-
-// PATCH 2: Validate Key Version at Application Startup
-const version = Number(process.env.ACTIVE_KEY_VERSION);
-
-if (!version) {
-  throw new Error("ACTIVE_KEY_VERSION missing or invalid");
-}
-
-const key = process.env[`ENCRYPTION_KEY_V${version}`];
-
-if (!key) {
-  throw new Error(`ENCRYPTION_KEY_V${version} is missing`);
-}
-
-if (key.length !== 64 || !/^[0-9a-fA-F]+$/.test(key)) {
-  throw new Error(`Invalid ENCRYPTION_KEY_V${version}`);
-}
 import cors from 'cors';
 import morgan from 'morgan';
 import { apiLimiter, internalLimiter } from './shared/middleware/rateLimiter.js';
@@ -24,6 +7,8 @@ import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import { randomUUID } from 'crypto';
+
+import config from './shared/config/index.js';
 
 import authRoutes from './modules/auth/auth.routes.js';
 import userRoutes, { internalRouter as internalUserRouter } from './modules/user/user.routes.js';
@@ -33,6 +18,7 @@ import mfaRoutes from './modules/auth/mfa.routes.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.js';
 import { authenticate } from './shared/middleware/authenticate.js';
 import logger from './shared/utils/logger.js';
+import { register, requestCounter } from './metrics/metrics.js';
 
 const app = express();
 
@@ -71,9 +57,7 @@ app.use(
 // ─────────────────────────────────────────────
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(',')
-      : ['http://localhost:3000'],
+    origin: config.app.corsOrigin,
     credentials: true,
   })
 );
@@ -101,7 +85,7 @@ app.use(hpp());
 app.use(
   morgan('combined', {
     stream: { write: (msg) => logger.http(msg.trim()) },
-    skip: () => process.env.NODE_ENV === 'test',
+    skip: () => config.app.nodeEnv === 'test',
   })
 );
 
@@ -111,21 +95,34 @@ app.use(
 app.use(apiLimiter);
 
 // ─────────────────────────────────────────────
-// HEALTH CHECK
+// GLOBAL REQUEST TRACKING (Prometheus)
 // ─────────────────────────────────────────────
 app.use((req, res, next) => {
-  console.log("DEBUG req.ip:", req.ip);
-  console.log("DEBUG x-forwarded-for:", req.headers['x-forwarded-for']);
-  console.log("DEBUG socket:", req.socket.remoteAddress);
+  res.on('finish', () => {
+    const route = req.route ? (req.baseUrl + req.route.path) : 'unknown_route';
+    requestCounter.inc({ method: req.method, route, status: res.statusCode });
+  });
   next();
 });
 
+// ─────────────────────────────────────────────
+// HEALTH CHECK & METRICS
+// ─────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.send(await register.metrics());
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
 });
 
 // ─────────────────────────────────────────────

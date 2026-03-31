@@ -4,7 +4,7 @@
  * Zero Trust — internal service-to-service authentication.
  *
  * Validates the `x-internal-token` header against the
- * INTERNAL_SERVICE_TOKEN environment variable.
+ * INTERNAL_SERVICE_TOKEN from centralized config.
  *
  * ⚠️  Apply ONLY to internal routes. Do NOT use globally.
  * ───────────────────────────────────────────────────────────
@@ -12,8 +12,9 @@
 import crypto from 'crypto';
 import logger from '../utils/logger.js';
 import { extractClientInfo } from '../utils/clientInfo.js';
+import { internal as internalConfig } from '../config/index.js';
 
-const INTERNAL_TOKEN = process.env.INTERNAL_SERVICE_TOKEN;
+const INTERNAL_TOKEN = internalConfig.serviceToken;
 
 if (!INTERNAL_TOKEN) {
   logger.warn('INTERNAL_SERVICE_TOKEN_MISSING', {
@@ -25,17 +26,6 @@ if (!INTERNAL_TOKEN) {
 
 /**
  * Middleware — validates internal service token.
- *
- * Logs INTERNAL_AUTH_FAILED with:
- *   - ip        caller IP
- *   - path      request path
- *   - reason    'missing_token' | 'invalid_token' | 'token_not_configured'
- *
- * ⚠️  The actual token value is NEVER logged.
- *
- * @param {import('express').Request}  req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
 export const internalAuth = (req, res, next) => {
   const provided = req.headers['x-internal-token'];

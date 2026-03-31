@@ -1,11 +1,12 @@
 
 import { OAuth2Client } from 'google-auth-library';
 import AppError from '../../shared/utils/AppError.js';
+import { google as googleConfig } from '../../shared/config/index.js';
 
 const client = new OAuth2Client(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/v1/auth/google/callback'
+  googleConfig.clientId,
+  googleConfig.clientSecret,
+  googleConfig.redirectUri
 );
 
 export const getAuthUrl = () => {
@@ -28,7 +29,7 @@ export const verifyGoogleIdToken = async (idToken) => {
   try {
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: googleConfig.clientId,
     });
     
     const payload = ticket.getPayload();

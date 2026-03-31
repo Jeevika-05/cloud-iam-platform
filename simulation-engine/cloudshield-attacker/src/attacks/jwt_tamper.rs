@@ -48,7 +48,10 @@ fn severity_for(test_name: &str, accepted: bool) -> &'static str {
         "role_escalation"
         | "role_escalation_alg_none"
         | "alg_none"
-        | "alg_None_variant" => "CRITICAL",
+        | "alg_None_variant"
+        | "kid_missing"
+        | "kid_unknown"
+        | "kid_valid_mismatch" => "CRITICAL",
 
         "expiry_bypass" => "HIGH",
 
@@ -74,6 +77,9 @@ fn classify_reason(status: u16, code: &str) -> String {
         "ALGORITHM_NOT_ALLOWED"  => "ALGORITHM_NOT_ALLOWED".into(),
         "TOKEN_INVALID"          => "TOKEN_INVALID".into(),
         "TOKEN_MALFORMED"        => "TOKEN_MALFORMED".into(),
+        "KID_MISSING"            => "KID_MISSING".into(),
+        "KID_UNKNOWN"            => "KID_UNKNOWN".into(),
+        "KID_SIGNATURE_MISMATCH" => "KID_SIGNATURE_MISMATCH".into(),
         "AUTH_REQUIRED"          => "UNAUTHORIZED".into(),
         "SESSION_REVOKED"        => "SESSION_REVOKED".into(),
         _ if status == 401       => "UNAUTHORIZED".into(),
@@ -376,6 +382,140 @@ pub async fn run(
         test_cases.push(JwtTamperCase {
             name: name.into(),
             description: "Combined: role→ADMIN + exp→2099 + alg→none (full exploit chain)".into(),
+            severity: severity.into(),
+            tampered_token: mask_token(&tampered),
+            response_status: r.status,
+            response_code: r.code,
+            reason,
+            accepted,
+            detail: summarize_body(&r.body),
+        });
+    }
+
+    // ── Test 8: Missing kid (strip kid from header) ──────────
+    {
+        let name = "kid_missing";
+        println!("[JWT]   Test 8: {} — remove kid from header, keep valid signature", name);
+
+        let mut modified_header = header_json.clone();
+        if let Some(obj) = modified_header.as_object_mut() {
+            obj.remove("kid");
+        }
+
+        let new_header_b64 = b64url_encode_json(&modified_header);
+        let tampered = format!("{}.{}.{}", new_header_b64, payload_b64, signature_b64);
+
+        let r = client.get_authenticated("/api/v1/auth/profile", &tampered).await;
+        let accepted = r.status == 200;
+        let reason = classify_reason(r.status, &r.code);
+        let severity = severity_for(name, accepted);
+
+        println!("[JWT]     → status={} accepted={} reason={} severity={}", r.status, accepted, reason, severity);
+
+        test_cases.push(JwtTamperCase {
+            name: name.into(),
+            description: "Stripped kid from JWT header — tests KID requirement enforcement".into(),
+            severity: severity.into(),
+            tampered_token: mask_token(&tampered),
+            response_status: r.status,
+            response_code: r.code,
+            reason,
+            accepted,
+            detail: summarize_body(&r.body),
+        });
+    }
+
+    // ── Test 9: Unknown kid (forged kid value) ──────────────
+    {
+        let name = "kid_unknown";
+        println!("[JWT]   Test 9: {} — inject forged kid value", name);
+
+        let mut modified_header = header_json.clone();
+        modified_header["kid"] = serde_json::json!("forged-key-9999");
+
+        let new_header_b64 = b64url_encode_json(&modified_header);
+        let tampered = format!("{}.{}.{}", new_header_b64, payload_b64, signature_b64);
+
+        let r = client.get_authenticated("/api/v1/auth/profile", &tampered).await;
+        let accepted = r.status == 200;
+        let reason = classify_reason(r.status, &r.code);
+        let severity = severity_for(name, accepted);
+
+        println!("[JWT]     → status={} accepted={} reason={} severity={}", r.status, accepted, reason, severity);
+
+        test_cases.push(JwtTamperCase {
+            name: name.into(),
+            description: "Forged kid='forged-key-9999' — tests unknown KID rejection".into(),
+            severity: severity.into(),
+            tampered_token: mask_token(&tampered),
+            response_status: r.status,
+            response_code: r.code,
+            reason,
+            accepted,
+            detail: summarize_body(&r.body),
+        });
+    }
+
+    // ── Test 10: kid_valid_mismatch (cross-key confusion) ────
+    //
+    // ATTACK THEORY: Token was signed with key1's private key.
+    // Attacker changes the kid header from "key1" → "key2" but
+    // keeps the ORIGINAL signature (computed over key1's header).
+    // If the backend naively resolves key2's public key but the
+    // signature was signed with key1's private key, RS256
+    // verification MUST fail because RSA sig(key1) ≠ ver(key2).
+    //
+    // This tests that:
+    //   1. Backend trusts kid to select the verification key
+    //   2. Backend does NOT fall back to other keys on failure
+    //   3. Signature mismatch is detected and rejected
+    {
+        let name = "kid_valid_mismatch";
+
+        // Determine the original kid and the "other" valid kid to swap to
+        let original_kid = header_json
+            .get("kid")
+            .and_then(|v| v.as_str())
+            .unwrap_or("key1");
+
+        // Pick the alternate key — if original is key1, use key2 and vice versa
+        let swapped_kid = if original_kid == "key2" { "key1" } else { "key2" };
+
+        println!(
+            "[JWT]   Test 10: {} — swap kid '{}' → '{}', keep original signature",
+            name, original_kid, swapped_kid
+        );
+
+        let mut modified_header = header_json.clone();
+        modified_header["kid"] = serde_json::json!(swapped_kid);
+
+        // Re-encode header but keep original payload + signature.
+        // The signature was computed over (original_header.payload),
+        // so changing the header alone already invalidates it, AND
+        // the backend will verify against key2's public key which
+        // cannot validate key1's signature.
+        let new_header_b64 = b64url_encode_json(&modified_header);
+        let tampered = format!("{}.{}.{}", new_header_b64, payload_b64, signature_b64);
+
+        let r = client
+            .get_authenticated("/api/v1/auth/profile", &tampered)
+            .await;
+        let accepted = r.status == 200;
+        let reason = classify_reason(r.status, &r.code);
+        let severity = severity_for(name, accepted);
+
+        println!(
+            "[JWT]     → status={} accepted={} reason={} severity={}",
+            r.status, accepted, reason, severity
+        );
+
+        test_cases.push(JwtTamperCase {
+            name: name.into(),
+            description: format!(
+                "Swapped kid '{}' → '{}' (both valid keys), kept original signature — \
+                 tests cross-key confusion / key selection bypass",
+                original_kid, swapped_kid
+            ),
             severity: severity.into(),
             tampered_token: mask_token(&tampered),
             response_status: r.status,

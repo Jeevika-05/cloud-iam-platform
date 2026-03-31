@@ -1,6 +1,7 @@
 import logger from '../utils/logger.js';
 import AppError from '../utils/AppError.js';
 import { extractClientInfo } from '../utils/clientInfo.js';
+import { app as appConfig } from '../config/index.js';
 
 // ───────────────────────────────────────────────────────────
 // Handle Prisma-specific errors
@@ -55,7 +56,7 @@ export const errorHandler = (err, req, res, next) => {
   }
 
   const statusCode = error.statusCode || 500;
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = appConfig.isProduction;
 
   // ─────────────────────────────────────────────
   // 4. Structured logging (VERY IMPORTANT)

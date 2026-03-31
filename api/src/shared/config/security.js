@@ -1,7 +1,10 @@
-export const SECURITY_CONFIG = {
-  MAX_LOGIN_ATTEMPTS: 5,
-  LOCK_TIME:
-    process.env.NODE_ENV === 'development'
-      ? 60 * 1000      // 1 minute (dev)
-      : 15 * 60 * 1000 // 15 minutes (prod)
-};
+/**
+ * Re-export security config from centralized configuration.
+ * Kept for backward compatibility with existing imports.
+ */
+import { security } from './index.js';
+
+export const SECURITY_CONFIG = Object.freeze({
+  MAX_LOGIN_ATTEMPTS: security.maxLoginAttempts,
+  LOCK_TIME:          security.lockTime,
+});

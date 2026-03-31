@@ -33,7 +33,7 @@ services:
       timeout: 5s
       retries: 5
 
-  api:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
@@ -51,14 +51,22 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      # ── JWT Multi-Key (KID rotation) ──────────
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-key1}
+      JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
+      JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
+      JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
+      JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
+      # Legacy fallback (used if no KID keys configured)
+      JWT_PRIVATE_KEY_FILE: /app/keys/jwt_private.pem
+      JWT_PUBLIC_KEY_FILE: /app/keys/jwt_public.pem
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
     ports:
       - '${PORT:-3000}:3000'
     volumes:
       - .:/app
       - /app/node_modules
+      - ./keys:/app/keys:ro
     command: npm run dev
     networks:
       - backend
@@ -93,10 +101,10 @@ services:
       dockerfile: Dockerfile
     container_name: auth_attacker
     depends_on:
-      api:
+      backend:
         condition: service_healthy
     environment:
-      TARGET_URL: http://api:3000
+      TARGET_URL: http://backend:3000
       ATTACK_EMAIL: ${ATTACK_EMAIL:-attacker@test.com}
       ATTACK_PASSWORD: ${ATTACK_PASSWORD:-Attack@123}
       # ATTACK_MODE options: all | token_race (atk01) | mfa_replay (atk02)
@@ -106,6 +114,26 @@ services:
     networks:
       - backend
     restart: "no"
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - backend
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    networks:
+      - backend
 
 volumes:
   postgres_data:

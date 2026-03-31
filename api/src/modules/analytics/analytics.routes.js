@@ -7,6 +7,7 @@ import prisma from '../../shared/config/database.js';
 import { successResponse } from '../../shared/utils/response.js';
 import logger from '../../shared/utils/logger.js';
 import { extractClientInfo } from '../../shared/utils/clientInfo.js';
+import { internal as internalConfig } from '../../shared/config/index.js';
 
 const router = Router();
 
@@ -66,7 +67,7 @@ router.get(
   async (req, res, next) => {
     try {
       const { userId } = req.params;
-      const internalToken = process.env.INTERNAL_SERVICE_TOKEN;
+      const internalToken = internalConfig.serviceToken;
 
       if (!internalToken) {
         return res.status(503).json({
