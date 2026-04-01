@@ -14,6 +14,7 @@ import authRoutes from './modules/auth/auth.routes.js';
 import userRoutes, { internalRouter as internalUserRouter } from './modules/user/user.routes.js';
 import analyticsRoutes from './modules/analytics/analytics.routes.js';
 import mfaRoutes from './modules/auth/mfa.routes.js';
+import auditRoutes from './modules/audit/audit.routes.js';
 
 import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.js';
 import { authenticate } from './shared/middleware/authenticate.js';
@@ -145,6 +146,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/mfa', mfaRoutes);
 app.use('/api/v1/users', authenticate, userRoutes);
 app.use('/api/v1/analytics', authenticate, analyticsRoutes);
+app.use('/api/v1/audit', auditRoutes);
 
 // ─────────────────────────────────────────────
 // INTERNAL ROUTES — Zero Trust (service-to-service only)

@@ -582,6 +582,12 @@ async fn main() {
     //  Write combined report
     // ═══════════════════════════════════════════════
     let full_report = serde_json::json!({
+        "_metadata": {
+            "source": "cloudshield-attacker",
+            "scope": "attack_engine_output_only",
+            "description": "Contains ATTACK events and verdicts from the Rust simulation engine. DEFENSE events (STRIKE_RECORDED, IP_BANNED) are stored in the backend AuditLog database and available via GET /api/v1/audit/events/defense. Use scripts/neo4j_ingest.js to merge both for Neo4j ingestion.",
+            "version": "2.0.0"
+        },
         "engine": "cloudshield-attacker",
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "attack_mode": format!("{:?}", mode),

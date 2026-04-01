@@ -6,6 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "worker": "node workers/eventWorker.js",
     "dev": "nodemon src/server.js",
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",

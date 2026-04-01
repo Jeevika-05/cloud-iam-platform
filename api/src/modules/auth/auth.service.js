@@ -64,6 +64,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
   if (!user) {
     await dummyVerify(password);
     logger.warn('LOGIN_FAILED', { email: normalizedEmail, ip: ipAddress });
+    await logSecurityEvent({ action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 
@@ -105,6 +106,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
     });
 
     logger.warn('LOGIN_FAILED', { userId: user.id, ip: ipAddress });
+    await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 

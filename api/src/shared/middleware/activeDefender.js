@@ -9,6 +9,7 @@
 //   • Graceful Redis failure handling (never crashes API)
 // ─────────────────────────────────────────────────────────────
 
+import crypto from 'crypto';
 import redisClient from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { getClientIp } from '../utils/clientInfo.js';
@@ -39,12 +40,12 @@ const ALLOWLIST = new Set([
 
 // Docker internal IP ranges (172.16-31.x.x, 10.x.x.x, 192.168.x.x)
 const INTERNAL_CIDRS = [
-  /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
-  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-  /^192\.168\.\d{1,3}\.\d{1,3}$/,
-  /^::ffff:172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
-  /^::ffff:10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-  /^::ffff:192\.168\.\d{1,3}\.\d{1,3}$/,
+  // /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+  // /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  // /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  // /^::ffff:172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+  // /^::ffff:10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  // /^::ffff:192\.168\.\d{1,3}\.\d{1,3}$/,
 ];
 
 /**
@@ -80,6 +81,37 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
     await redisClient.expire(strikeKey, STRIKE_WINDOW_TTL);
 
     logger.debug('STRIKE_RECORDED', { ip, strikes, threshold: STRIKE_THRESHOLD, severity, reason });
+
+    // Unified DEFENSE event — queued to Redis stream for async processing
+    try {
+      const event = {
+        event_id: crypto.randomUUID(),
+        correlation_id: crypto.randomUUID(),
+        event_type: "DEFENSE",
+        action: "STRIKE_RECORDED",
+        source_ip: ip,
+        ip_type: ip.startsWith('192.168.') || ip.startsWith('10.') ? "SIMULATED" : "REAL",
+        user_agent: "active-defender",
+        agent_type: "SYSTEM",
+        target_type: "SYSTEM",
+        target_endpoint: "strike-engine",
+        result: "BLOCKED",
+        reason: reason,
+        strike_count: strikes,
+        severity: "MEDIUM",
+        timestamp: new Date().toISOString(),
+        mode: activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER"
+      };
+      
+      await redisClient.xadd(
+        'security_events',
+        '*',
+        'data',
+        JSON.stringify(event)
+      );
+    } catch (dbErr) {
+      logger.error('Failed to pipe DEFENSE event to Redis stream', { error: dbErr.message });
+    }
 
     if (strikes >= STRIKE_THRESHOLD) {
       await banIp(ip, severity, reason);
@@ -136,6 +168,38 @@ const banIp = async (ip, severity, reason) => {
 
     // 📊 Prometheus: Increment ban counter
     ipBanCounter.inc({ reason, severity });
+
+    // Unified DEFENSE event — queued to Redis stream for async processing
+    try {
+      const event = {
+        event_id: crypto.randomUUID(),
+        correlation_id: crypto.randomUUID(),
+        event_type: "DEFENSE",
+        action: "IP_BANNED",
+        source_ip: ip,
+        ip_type: ip.startsWith('192.168.') || ip.startsWith('10.') ? "SIMULATED" : "REAL",
+        user_agent: "active-defender",
+        agent_type: "SYSTEM",
+        target_type: "SYSTEM",
+        target_endpoint: "ban-engine",
+        result: "BANNED",
+        total_strikes: meta.count * STRIKE_THRESHOLD,
+        ban_duration: duration,
+        ban_number: meta.count,
+        severity: "HIGH",
+        timestamp: new Date().toISOString(),
+        mode: activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER"
+      };
+
+      await redisClient.xadd(
+        'security_events',
+        '*',
+        'data',
+        JSON.stringify(event)
+      );
+    } catch (dbErr) {
+      logger.error('Failed to pipe IP_BANNED event to Redis stream', { error: dbErr.message });
+    }
 
     const durationLabel = duration < 3600
       ? `${duration / 60}m`
