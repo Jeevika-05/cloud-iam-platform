@@ -29,6 +29,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 
 COPY src ./src
+COPY workers ./workers
+COPY scripts ./scripts
 COPY package*.json ./
 
 USER nodeuser

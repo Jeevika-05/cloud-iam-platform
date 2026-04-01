@@ -94,6 +94,10 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
       REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./keys:/app/keys:ro
     networks:
       - backend
 
@@ -131,6 +135,23 @@ services:
       ATTACK_MODE: ${ATTACK_MODE:-all}
     volumes:
       - ./reports:/reports
+    networks:
+      - backend
+    restart: "no"
+
+  ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth_ingest
+    command: node scripts/neo4j_ingest.js --api-url http://backend:3000 --attack-file /app/reports/results.json --output /app/reports/unified_events.json
+    depends_on:
+      attacker:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./reports:/app/reports
     networks:
       - backend
     restart: "no"
