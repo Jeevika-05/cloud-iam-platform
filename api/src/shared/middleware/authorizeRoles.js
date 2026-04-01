@@ -22,6 +22,7 @@ import AppError from '../utils/AppError.js';
 import logger from '../utils/logger.js';
 import { extractClientInfo } from '../utils/clientInfo.js';
 import { logSecurityEvent } from '../../modules/auth/audit.service.js';
+import { authorizationFailures } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // Allowed role universe — single source of truth.
@@ -141,6 +142,7 @@ export const authorizeRoles = (...allowedRolesInput) => {
           },
         });
 
+        authorizationFailures.inc({ type: 'rbac' });
         throw new AppError(
           `Access denied. Required role(s): ${allowedRoles.join(' | ')}. ` +
           `Your role(s): ${userRoles.join(', ')}.`,

@@ -1,5 +1,6 @@
 import { body, param, validationResult } from 'express-validator';
 import AppError from '../utils/AppError.js';
+import { validationFailures } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // Validation Result Handler
@@ -12,6 +13,8 @@ export const validate = (req, res, next) => {
       field: e.path,
       message: e.msg,
     }));
+
+    validationFailures.inc({ endpoint: req.originalUrl || 'unknown' });
 
     const err = new AppError('Validation failed', 422, 'VALIDATION_ERROR');
     err.errors = details;

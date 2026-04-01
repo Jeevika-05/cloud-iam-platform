@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import { randomUUID } from 'crypto';
 
-import config from './shared/config/index.js';
+import config, { activeDefense as activeDefenseConfig } from './shared/config/index.js';
 
 import authRoutes from './modules/auth/auth.routes.js';
 import userRoutes, { internalRouter as internalUserRouter } from './modules/user/user.routes.js';
@@ -19,6 +19,7 @@ import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.
 import { authenticate } from './shared/middleware/authenticate.js';
 import logger from './shared/utils/logger.js';
 import { register, requestCounter } from './metrics/metrics.js';
+import { activeDefenseMiddleware } from './shared/middleware/activeDefender.js';
 
 const app = express();
 
@@ -88,6 +89,18 @@ app.use(
     skip: () => config.app.nodeEnv === 'test',
   })
 );
+
+// ─────────────────────────────────────────────
+// ACTIVE DEFENSE — Ban enforcement layer (BEFORE rate limiter)
+// When ON:  banned IPs rejected at edge → zero processing cost
+// When OFF: system degrades to stateless per-request rejection
+// ─────────────────────────────────────────────
+if (activeDefenseConfig.enabled) {
+  app.use(activeDefenseMiddleware);
+  logger.info('ACTIVE_DEFENDER_ENABLED', { mode: 'adaptive_blocking' });
+} else {
+  logger.info('ACTIVE_DEFENDER_DISABLED', { mode: 'per_request_rejection_only' });
+}
 
 // ─────────────────────────────────────────────
 // RATE LIMITING

@@ -336,6 +336,13 @@ export const security = Object.freeze({
 });
 
 // ─────────────────────────────────────────────────────────────
+// ACTIVE DEFENSE CONFIG (Toggle + Tuning)
+// ─────────────────────────────────────────────────────────────
+export const activeDefense = Object.freeze({
+  enabled: (process.env.ACTIVE_DEFENDER || 'true').toLowerCase() === 'true',
+});
+
+// ─────────────────────────────────────────────────────────────
 // GOOGLE OAUTH CONFIG
 // ─────────────────────────────────────────────────────────────
 export const google = Object.freeze({
@@ -382,6 +389,7 @@ const config = Object.freeze({
   encryption,
   hashing,
   security,
+  activeDefense,
   google,
   internal,
   seed,

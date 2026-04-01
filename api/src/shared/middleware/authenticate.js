@@ -3,6 +3,7 @@ import AppError from '../utils/AppError.js';
 import prisma from '../config/database.js';
 import logger from '../utils/logger.js';
 import { extractClientInfo } from '../utils/clientInfo.js';
+import { authFailureCounter } from '../../metrics/metrics.js';
 
 export const authenticate = async (req, res, next) => {
   try {
@@ -12,6 +13,7 @@ export const authenticate = async (req, res, next) => {
     // 1. Validate Authorization Header
     // ─────────────────────────────────────────────
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      authFailureCounter.inc({ reason: 'header_missing' });
       throw new AppError(
         'Authorization header missing or malformed',
         401,
@@ -22,6 +24,7 @@ export const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
 
     if (!token) {
+      authFailureCounter.inc({ reason: 'token_missing' });
       throw new AppError('Token missing', 401, 'AUTH_REQUIRED');
     }
 
@@ -46,6 +49,7 @@ export const authenticate = async (req, res, next) => {
     });
 
     if (!session || session.revoked) {
+      authFailureCounter.inc({ reason: 'session_revoked' });
       throw new AppError('Session invalidated or compromised', 401, 'SESSION_REVOKED');
     }
 
@@ -64,6 +68,7 @@ export const authenticate = async (req, res, next) => {
     });
 
     if (!user) {
+      authFailureCounter.inc({ reason: 'user_not_found' });
       throw new AppError('User no longer exists', 401, 'USER_NOT_FOUND');
     }
 

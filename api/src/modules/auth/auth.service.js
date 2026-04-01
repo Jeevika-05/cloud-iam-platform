@@ -14,6 +14,7 @@ import {
 } from '../../shared/utils/jwt.js';
 import { logSecurityEvent } from './audit.service.js';
 import { SECURITY_CONFIG } from '../../shared/config/security.js';
+import { accountLockCounter, sessionSecurityCounter } from '../../metrics/metrics.js';
 
 const MAX_SESSIONS = config.security.maxSessions;
 
@@ -95,6 +96,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
         userId: user.id
       });
       logger.warn('ACCOUNT_LOCKED', { userId: user.id, ip: ipAddress });
+      accountLockCounter.inc({ reason: 'brute_force' });
     }
 
     await prisma.user.update({
@@ -307,6 +309,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
   // REUSE DETECTION: If found AND isUsed === true
   if (session.isUsed) {
     logger.warn('TOKEN_REUSE_DETECTED', { userId: decoded.sub, jti: decoded.jti, ipAddress });
+    sessionSecurityCounter.inc({ event: 'token_reuse' });
     await prisma.session.updateMany({
       where: { userId: decoded.sub },
       data: { revoked: true }
@@ -321,6 +324,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
       metadata: { jti: decoded.jti, allSessionsRevoked: true },
     });
 
+    sessionSecurityCounter.inc({ event: 'session_compromised' });
     throw new AppError('Refresh token reuse detected. All sessions revoked.', 401, 'SESSION_COMPROMISED');
   }
 
@@ -349,6 +353,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     const isTokenMatch = await verifyHash(session.refreshTokenHash, token);
     if (!isTokenMatch) {
       logger.warn('TOKEN_MISMATCH_REUSE_DETECTED', { userId: session.userId, jti: decoded.jti, ipAddress });
+      sessionSecurityCounter.inc({ event: 'token_hash_mismatch' });
       await prisma.session.updateMany({
         where: { userId: session.userId },
         data: { revoked: true }
@@ -376,6 +381,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     });
     
     logger.warn('SUSPICIOUS_SESSION_REVOKED', { userId: session.userId, ipAddress, userAgent });
+    sessionSecurityCounter.inc({ event: 'session_hijack' });
     throw new AppError('Session anomalously accessed and revoked', 403, 'SESSION_COMPROMISED');
   }
 
@@ -393,6 +399,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
   if (updatedSession.count === 0) {
     // Race condition detected! Another request already marked it as used.
     logger.warn('TOKEN_REUSE_DETECTED_RACE_CONDITION', { userId: session.userId, jti: decoded.jti, ipAddress });
+    sessionSecurityCounter.inc({ event: 'token_race' });
     await prisma.session.updateMany({
       where: { userId: session.userId },
       data: { revoked: true }

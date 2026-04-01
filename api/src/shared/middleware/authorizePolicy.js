@@ -4,6 +4,7 @@ import prisma from '../config/database.js';
 import { evaluatePolicy } from '../../modules/auth/policyEngine.js';
 import { extractClientInfo } from '../utils/clientInfo.js';
 import { logSecurityEvent } from '../../modules/auth/audit.service.js';
+import { authorizationFailures } from '../../metrics/metrics.js';
 
 export const authorizePolicy = ({ action, resource, getResource }) => {
   return async (req, res, next) => {
@@ -52,6 +53,7 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
              },
            });
 
+           authorizationFailures.inc({ type: 'session_hijack' });
            throw new AppError('Anomalous contextual access blocked', 403, 'SESSION_COMPROMISED');
           }
         }
@@ -99,6 +101,7 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
           },
         });
 
+        authorizationFailures.inc({ type: 'abac_policy' });
         throw new AppError('Access denied by policy constraint', 403, 'FORBIDDEN');
       }
 
