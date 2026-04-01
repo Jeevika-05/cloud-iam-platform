@@ -76,6 +76,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth_worker
+    restart: unless-stopped
+    command: npm run worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
+      REDIS_URL: redis://redis:6379
+    networks:
+      - backend
 
   migrate:
     build:
