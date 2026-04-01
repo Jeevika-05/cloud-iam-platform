@@ -69,7 +69,10 @@ async function main() {
 
     const user = await prisma.user.upsert({
       where:  { email: userData.email.toLowerCase().trim() },
-      update: {},   // do not overwrite existing users
+      update: {
+        password: hashedPassword,
+        ...totpData
+      },
       create: {
         name:     userData.name,
         email:    userData.email.toLowerCase().trim(),
