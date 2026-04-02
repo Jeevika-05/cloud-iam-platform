@@ -2,6 +2,7 @@ import Redis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import winston from 'winston';
 import { streamConsumerLag } from '../src/metrics/metrics.js';
+import { RiskEngine } from './riskEngine.js';
 
 const prisma = new PrismaClient();
 const logger = winston.createLogger({
@@ -12,6 +13,8 @@ const logger = winston.createLogger({
 
 const redisClient = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 redisClient.on('error', (err) => logger.error('Redis Worker Error:', err.message));
+
+const riskEngine = new RiskEngine(redisClient);
 
 // ─────────────────────────────────────────────
 // STREAM / GROUP CONSTANTS
@@ -142,6 +145,12 @@ async function processMessage(messageId, keyValues) {
   // Throws on DB error → caller skips ACK → PEL retains message for reclaim
   await saveToPostgres(eventData);
   saveToNeo4j(eventData);
+
+  // Non-blocking Risk Evaluation
+  riskEngine.processEvent(eventData).catch(err => {
+    logger.error('RISK_ENGINE_ERROR', { error: err.message, event_id: eventData?.event_id });
+  });
+
   return true;
 }
 

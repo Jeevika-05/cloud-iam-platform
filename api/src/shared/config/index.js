@@ -379,6 +379,15 @@ export const seed = Object.freeze({
 });
 
 // ─────────────────────────────────────────────────────────────
+// RISK COMPUTE CONFIG
+// ─────────────────────────────────────────────────────────────
+export const risk = Object.freeze({
+  low:    parseInt(process.env.RISK_THRESHOLD_LOW, 10)    || 30,
+  medium: parseInt(process.env.RISK_THRESHOLD_MEDIUM, 10) || 60,
+  high:   parseInt(process.env.RISK_THRESHOLD_HIGH, 10)   || 85,
+});
+
+// ─────────────────────────────────────────────────────────────
 // DEFAULT EXPORT — full config tree
 // ─────────────────────────────────────────────────────────────
 const config = Object.freeze({
@@ -393,6 +402,7 @@ const config = Object.freeze({
   google,
   internal,
   seed,
+  risk,
 });
 
 export default config;
