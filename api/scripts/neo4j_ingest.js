@@ -104,7 +104,7 @@ async function loadDefenseEvents(apiUrl, token, since) {
 
   try {
     const headers = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (token) headers['x-internal-token'] = token;
 
     const response = await fetch(url.toString(), { headers });
 

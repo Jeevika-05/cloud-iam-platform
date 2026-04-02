@@ -29,6 +29,12 @@ router.get('/debug/counts', internalLimiter, internalAuth, async (req, res) => {
     const ipBanned = await prisma.auditLog.count({
       where: { action: 'IP_BANNED' },
     });
+    const blockedBannedIp = await prisma.auditLog.count({
+      where: { action: 'BLOCKED_BANNED_IP' },
+    });
+    const blockedRequest = await prisma.auditLog.count({
+      where: { action: 'BLOCKED_REQUEST' },
+    });
 
     // Also check for defense events by scanning metadata
     const allLogs = await prisma.auditLog.findMany({
@@ -48,7 +54,9 @@ router.get('/debug/counts', internalLimiter, internalAuth, async (req, res) => {
       defense_events: {
         STRIKE_RECORDED: strikeRecorded,
         IP_BANNED: ipBanned,
-        total: strikeRecorded + ipBanned,
+        BLOCKED_BANNED_IP: blockedBannedIp,
+        BLOCKED_REQUEST: blockedRequest,
+        total: strikeRecorded + ipBanned + blockedBannedIp + blockedRequest,
       },
       recent_events: recentActions,
     });
@@ -69,7 +77,7 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
     const take = Math.min(parseInt(limit, 10) || 1000, 5000);
 
     const where = {
-      action: { in: ['STRIKE_RECORDED', 'IP_BANNED'] },
+      action: { in: ['STRIKE_RECORDED', 'IP_BANNED', 'BLOCKED_BANNED_IP', 'BLOCKED_REQUEST'] },
     };
 
     if (since) {
@@ -92,7 +100,7 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
         correlation_id: meta.correlation_id || log.id,
         user_id: log.userId || 'SYSTEM',
         user_email: log.user?.email || null,
-        event_type: 'DEFENSE',
+        event_type: meta.event_type || 'DEFENSE',
         action: log.action,
         source_ip: log.ip || meta.source_ip || 'unknown',
         ip_type: meta.ip_type || 'SIMULATED',
@@ -116,7 +124,7 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
       _metadata: {
         source: 'audit_defense_api',
         total_events: events.length,
-        event_types: ['STRIKE_RECORDED', 'IP_BANNED'],
+        event_types: ['STRIKE_RECORDED', 'IP_BANNED', 'BLOCKED_BANNED_IP', 'BLOCKED_REQUEST'],
         generated_at: new Date().toISOString(),
       },
       events,

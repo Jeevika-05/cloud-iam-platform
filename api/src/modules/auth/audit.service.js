@@ -33,7 +33,9 @@ export const logSecurityEvent = async (payload) => {
   const severity = inferSeverity(resolvedStatus);
   if (severity && resolvedIp && resolvedEventType !== "DEFENSE") {
     // Only record strikes for non-defense events to avert recursion
-    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`).catch(() => {});
+    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`).catch((err) => {
+      logger.error('RECORD_STRIKE_FAILED', { error: err.message, ip: resolvedIp });
+    });
   }
 
   const isSimulated = userAgent?.includes('attack-engine') || resolvedIp?.startsWith('192.168.');

@@ -38,14 +38,10 @@ const ALLOWLIST = new Set([
   'localhost',
 ]);
 
-// Docker internal IP ranges (172.16-31.x.x, 10.x.x.x, 192.168.x.x)
+// Docker internal IP ranges (172.16-31.x.x)
 const INTERNAL_CIDRS = [
   /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
-  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-  /^192\.168\.\d{1,3}\.\d{1,3}$/,
   /^::ffff:172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
-  /^::ffff:10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
-  /^::ffff:192\.168\.\d{1,3}\.\d{1,3}$/,
 ];
 
 /**
@@ -245,6 +241,62 @@ export const activeDefenseMiddleware = async (req, res, next) => {
         severity: ban.severity,
         banNumber: ban.banNumber,
       });
+
+      try {
+        const correlation_id = req.headers['x-correlation-id'] || crypto.randomUUID();
+        const timestamp = new Date().toISOString();
+        const mode = activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER";
+        const ip_type = ip.startsWith('192.168.') || ip.startsWith('10.') ? "SIMULATED" : "REAL";
+        const user_agent = req.headers['user-agent'] || "active-defender";
+
+        // 1. Emit DEFENSE Event
+        const defenseEvent = {
+          event_id: crypto.randomUUID(),
+          correlation_id,
+          event_type: "DEFENSE",
+          action: "BLOCKED_BANNED_IP",
+          source_ip: ip,
+          ip_type,
+          user_agent,
+          agent_type: "SYSTEM",
+          target_type: "SYSTEM",
+          target_endpoint: req.originalUrl || "ban-engine",
+          result: "BLOCKED",
+          reason: ban.reason,
+          strike_count: ban.banNumber * STRIKE_THRESHOLD,
+          severity: "HIGH",
+          timestamp,
+          mode
+        };
+        await redisClient.xadd('security_events', '*', 'data', JSON.stringify(defenseEvent));
+
+        // 2. Emit ATTACK Event
+        const attackEvent = {
+          event_id: crypto.randomUUID(),
+          correlation_id,
+          event_type: "ATTACK",
+          action: "BLOCKED_REQUEST",
+          source_ip: ip,
+          ip_type,
+          user_agent,
+          agent_type: "EXTERNAL",
+          target_type: "API",
+          target_endpoint: req.originalUrl,
+          result: "BLOCKED",
+          severity: "MEDIUM",
+          timestamp,
+          mode,
+          metadata: {
+            route: req.originalUrl,
+            method: req.method,
+            reason: ban.reason
+          }
+        };
+        await redisClient.xadd('security_events', '*', 'data', JSON.stringify(attackEvent));
+        
+      } catch (err) {
+        logger.error('Failed to pipe events to Redis stream', { error: err.message });
+      }
 
       return res.status(403).json({
         success: false,

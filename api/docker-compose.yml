@@ -144,7 +144,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: auth_ingest
-    command: node scripts/neo4j_ingest.js --api-url http://backend:3000 --attack-file /app/reports/results.json --output /app/reports/unified_events.json
+    command: node scripts/neo4j_ingest.js --api-url http://backend:3000 --attack-file /app/reports/results.json --output /app/reports/unified_events.json --token ${INTERNAL_SERVICE_TOKEN}
     depends_on:
       attacker:
         condition: service_completed_successfully

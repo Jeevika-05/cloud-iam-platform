@@ -1,4 +1,4 @@
-import logger from '../src/utils/logger.js';
+import logger from '../src/shared/utils/logger.js';
 import config from '../src/shared/config/index.js';
 import { recordStrike } from '../src/shared/middleware/activeDefender.js';
 
@@ -10,10 +10,22 @@ const SEVERITY_WEIGHTS = {
 };
 
 const BASE_EVENT_WEIGHTS = {
-  JWT_ATTACK: 20,
-  MFA_FAIL: 10,
-  LOGIN_FAIL: 5,
-  PASSTHROUGH: 0,
+  // Simulated Attacks from Rust
+  JWT_TAMPER: 20,
+  PASSWORD_BRUTE: 15,
+  MFA_BRUTE_FORCE_SINGLE_IP: 15,
+  MFA_BRUTE_FORCE_DISTRIBUTED: 25,
+  SESSION_REUSE: 20,
+  IDOR: 20,
+  CSRF: 15,
+  MASS_ASSIGNMENT: 15,
+  ACCESS_TOKEN_ABUSE: 20,
+  
+  // API Internal Events
+  LOGIN_FAILED: 5,
+  MFA_FAILED: 10,
+  TOKEN_REUSE_DETECTED: 20,
+  SUSPICIOUS_SESSION_DETECTED: 20,
   LOGIN_SUCCESS: -10,
 };
 
@@ -46,7 +58,12 @@ export class RiskEngine {
       const slot = Math.floor(eventTimeMs / 300000);
       const windowKey = `risk:window:${ip}:${slot}`;
 
-      const eventType = event.action || event.event_type || 'UNKNOWN';
+      let eventType = event.action || event.event_type || 'UNKNOWN';
+      
+      // Differentiate MFA failures from normal LOGIN failures since both share the same action
+      if (eventType === 'LOGIN_FAILED' && (event.status === 'MFA_FAILED' || event.result === 'MFA_FAILED')) {
+        eventType = 'MFA_FAILED';
+      }
 
       const lastEventKey = `risk:last_event:${ip}`;
 
@@ -103,10 +120,10 @@ export class RiskEngine {
 
       // 3. True Sequence-Based Scoring
       // Look for specific chained attack patterns from the immediately preceding event
-      if (previousEventType === 'JWT_ATTACK' && eventType === 'MFA_FAIL') {
+      if (previousEventType === 'JWT_TAMPER' && eventType === 'MFA_FAILED') {
         score += 25; // Big boost for chaining
       }
-      if (previousEventType === 'LOGIN_FAIL' && eventType === 'MFA_FAIL') {
+      if (previousEventType === 'LOGIN_FAILED' && eventType === 'MFA_FAILED') {
         score += 10;
       }
 
