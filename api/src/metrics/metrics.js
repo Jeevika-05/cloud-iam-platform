@@ -119,4 +119,22 @@ export const requestCounter = new client.Counter({
 });
 register.registerMetric(requestCounter);
 
+// ─────────────────────────────────────────────
+// SYSTEM METRICS
+// ─────────────────────────────────────────────
+export const streamConsumerLag = new client.Gauge({
+  name: 'iam_stream_consumer_lag',
+  help: 'Number of pending messages in the security events stream consumer group',
+  labelNames: ['stream', 'group'],
+});
+register.registerMetric(streamConsumerLag);
+
+export const securityEventSeverityCounter = new client.Counter({
+  name: 'iam_security_event_severity_total',
+  help: 'Total security events triggered by severity',
+  labelNames: ['severity'],
+});
+register.registerMetric(securityEventSeverityCounter);
+
 export { register };
+

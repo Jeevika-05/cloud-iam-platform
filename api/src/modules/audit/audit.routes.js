@@ -2,22 +2,25 @@
 // AUDIT EVENTS API — Exposes security events for Neo4j ingestion
 // ─────────────────────────────────────────────────────────────
 // GET /api/v1/audit/events          → paginated, filterable (auth required)
-// GET /api/v1/audit/events/defense  → DEFENSE events only (internal, no auth)
-// GET /api/v1/audit/debug/counts    → diagnostic endpoint (no auth)
+// GET /api/v1/audit/events/defense  → DEFENSE events only (internalAuth required)
+// GET /api/v1/audit/debug/counts    → diagnostic endpoint (internalAuth required)
 // ─────────────────────────────────────────────────────────────
 
 import { Router } from 'express';
 import prisma from '../../shared/config/database.js';
 import logger from '../../shared/utils/logger.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
+import { internalAuth } from '../../shared/middleware/internalAuth.js';
+import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
 
 const router = Router();
 
 // ─────────────────────────────────────────────
 // DIAGNOSTIC: Quick count of defense events in DB
 // Helps debug "are events even being inserted?"
+// 🔒 Internal only — requires x-internal-token
 // ─────────────────────────────────────────────
-router.get('/debug/counts', async (req, res) => {
+router.get('/debug/counts', internalLimiter, internalAuth, async (req, res) => {
   try {
     const totalAuditLogs = await prisma.auditLog.count();
     const strikeRecorded = await prisma.auditLog.count({
@@ -56,10 +59,11 @@ router.get('/debug/counts', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// DEFENSE EVENTS — No auth (internal pipeline use)
+// DEFENSE EVENTS — Internal pipeline use only
 // Must be registered BEFORE /events to avoid Express path collision
+// 🔒 Requires x-internal-token — not publicly accessible
 // ─────────────────────────────────────────────
-router.get('/events/defense', async (req, res) => {
+router.get('/events/defense', internalLimiter, internalAuth, async (req, res) => {
   try {
     const { since, limit = '1000' } = req.query;
     const take = Math.min(parseInt(limit, 10) || 1000, 5000);
@@ -147,6 +151,11 @@ router.get('/events', authenticate, async (req, res) => {
     const where = {};
     if (action) where.action = action;
     if (since) where.createdAt = { gte: new Date(since) };
+    // Push event_type filter to the DB via Prisma JSON path query —
+    // avoids a full in-process scan of the metadata column.
+    if (event_type) {
+      where.metadata = { path: ['event_type'], equals: event_type };
+    }
 
     const logs = await prisma.auditLog.findMany({
       where,
@@ -158,13 +167,7 @@ router.get('/events', authenticate, async (req, res) => {
       },
     });
 
-    let filtered = logs;
-    if (event_type) {
-      filtered = logs.filter((log) => {
-        const meta = log.metadata || {};
-        return meta.event_type === event_type;
-      });
-    }
+    const filtered = logs;
 
     if (format === 'neo4j') {
       const events = filtered.map((log) => {

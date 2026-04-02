@@ -1,8 +1,8 @@
-import prisma from '../../shared/config/database.js';
 import logger from '../../shared/utils/logger.js';
 import crypto from 'crypto';
 import { recordStrike } from '../../shared/middleware/activeDefender.js';
 import redisClient from '../../shared/config/redis.js';
+import { securityEventSeverityCounter } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // SEVERITY MAPPING: status → defense severity
@@ -61,9 +61,16 @@ export const logSecurityEvent = async (payload) => {
   logger.info('GRAPH_EVENT', graphEvent);
 
   try {
-    // Write normalized graphEvent to Async Redis Stream
+    if (graphEvent.severity) {
+      securityEventSeverityCounter.inc({ severity: graphEvent.severity });
+    }
+
+    // Write normalized graphEvent to Redis Stream.
+    // MAXLEN ~ 10000: approximate trim keeps memory bounded (O(1) amortized).
+    // The worker is the ONLY writer to PostgreSQL — no direct DB call here.
     await redisClient.xadd(
       'security_events',
+      'MAXLEN', '~', '10000',
       '*',
       'data',
       JSON.stringify(graphEvent)
@@ -82,4 +89,3 @@ export const logSecurityEvent = async (payload) => {
     });
   }
 };
-

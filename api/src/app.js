@@ -28,7 +28,7 @@ const app = express();
 // TRUST PROXY
 // ─────────────────────────────────────────────
 // 🔒 SEC-05: Trust only 1 proxy hop (prevents X-Forwarded-For spoofing)
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // ─────────────────────────────────────────────
 // REQUEST ID (for tracing)
