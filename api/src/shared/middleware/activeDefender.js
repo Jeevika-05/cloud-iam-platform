@@ -17,6 +17,7 @@ import { getClientIp } from '../utils/clientInfo.js';
 import { classifyIp } from '../utils/ipClassifier.js';
 import { ipBanCounter } from '../../metrics/metrics.js';
 import { activeDefense as activeDefenseConfig } from '../config/index.js';
+import { getNextSequenceIndex, getPreviousEventId, resolveStage, resolveAttackCategory, calculateEventIntelligence } from '../../modules/auth/audit.service.js';
 
 // ─────────────────────────────────────────────
 // CONFIGURATION
@@ -95,9 +96,22 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
 
     // Unified DEFENSE event — queued to Redis stream for async processing
     try {
+      const eventId = crypto.randomUUID();
+      // STRIKE_RECORDED events link back to the triggering attack via correlation_id
+      const correlationId = triggeringEventId || crypto.randomUUID();
+      const timestamp = new Date().toISOString();
+
+      const [event_sequence_index, parent_event_id, intelligence] = await Promise.all([
+        getNextSequenceIndex(correlationId),
+        getPreviousEventId(correlationId, eventId),
+        calculateEventIntelligence(correlationId, timestamp, ip, "strike-engine")
+      ]);
+
       const event = {
-        event_id: crypto.randomUUID(),
-        correlation_id: triggeringEventId || crypto.randomUUID(),
+        event_id: eventId,
+        correlation_id: correlationId,
+        event_sequence_index,
+        parent_event_id,
         event_type: "DEFENSE",
         action: "STRIKE_RECORDED",
         source_ip: ip,
@@ -110,8 +124,11 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
         reason: reason,
         strike_count: strikes,
         severity: "MEDIUM",
-        timestamp: new Date().toISOString(),
-        mode: activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER"
+        timestamp,
+        mode: activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER",
+        ...intelligence,
+        stage: resolveStage("DEFENSE", "STRIKE_RECORDED"),
+        attack_category: resolveAttackCategory(reason),
       };
       
       await redisClient.xadd(
@@ -183,9 +200,22 @@ const banIp = async (ip, severity, reason) => {
 
     // Unified DEFENSE event — queued to Redis stream for async processing
     try {
+      const eventId = crypto.randomUUID();
+      // IP_BANNED starts its own correlation chain (ban escalation is independent)
+      const correlationId = crypto.randomUUID();
+      const timestamp = new Date().toISOString();
+
+      const [event_sequence_index, parent_event_id, intelligence] = await Promise.all([
+        getNextSequenceIndex(correlationId),
+        getPreviousEventId(correlationId, eventId),
+        calculateEventIntelligence(correlationId, timestamp, ip, "ban-engine")
+      ]);
+
       const event = {
-        event_id: crypto.randomUUID(),
-        correlation_id: crypto.randomUUID(),
+        event_id: eventId,
+        correlation_id: correlationId,
+        event_sequence_index,
+        parent_event_id,
         event_type: "DEFENSE",
         action: "IP_BANNED",
         source_ip: ip,
@@ -199,8 +229,10 @@ const banIp = async (ip, severity, reason) => {
         ban_duration: duration,
         ban_number: meta.count,
         severity: "HIGH",
-        timestamp: new Date().toISOString(),
-        mode: activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER"
+        timestamp,
+        mode: activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER",
+        ...intelligence,
+        stage: resolveStage("DEFENSE", "IP_BANNED"),
       };
 
       await redisClient.xadd(
@@ -273,10 +305,52 @@ export const activeDefenseMiddleware = async (req, res, next) => {
         const ip_type = classifyIp(ip, req.headers['user-agent']);
         const user_agent = req.headers['user-agent'] || "active-defender";
 
-        // 1. Emit DEFENSE Event
-        const defenseEvent = {
-          event_id: crypto.randomUUID(),
+        // Both events share the same correlation_id — sequence is ordered by emit order
+        const attackEventId  = crypto.randomUUID();
+        const defenseEventId = crypto.randomUUID();
+
+        // 1. Resolve and emit ATTACK Event FIRST
+        const atkSeq = await getNextSequenceIndex(correlation_id);
+        const atkEndpoint = req.originalUrl;
+        const atkIntel = await calculateEventIntelligence(correlation_id, timestamp, ip, atkEndpoint);
+
+        const attackEvent = {
+          event_id: attackEventId,
           correlation_id,
+          event_sequence_index: atkSeq,
+          parent_event_id: null,
+          event_type: "ATTACK",
+          action: "BLOCKED_REQUEST",
+          source_ip: ip,
+          ip_type,
+          user_agent,
+          agent_type: "EXTERNAL",
+          target_type: "API",
+          target_endpoint: req.originalUrl,
+          result: "BLOCKED",
+          severity: "MEDIUM",
+          timestamp,
+          mode,
+          ...atkIntel,
+          stage: resolveStage("ATTACK", "BLOCKED_REQUEST"),
+          metadata: {
+            route: req.originalUrl,
+            method: req.method,
+            reason: ban.reason
+          }
+        };
+        await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(attackEvent));
+
+        // 2. Resolve and emit DEFENSE Event SECOND
+        const defSeq = await getNextSequenceIndex(correlation_id);
+        const defEndpoint = req.originalUrl || "ban-engine";
+        const defIntel = (atkEndpoint === defEndpoint) ? atkIntel : await calculateEventIntelligence(correlation_id, timestamp, ip, defEndpoint);
+
+        const defenseEvent = {
+          event_id: defenseEventId,
+          correlation_id,
+          event_sequence_index: defSeq,
+          parent_event_id: attackEventId,
           event_type: "DEFENSE",
           action: "BLOCKED_BANNED_IP",
           source_ip: ip,
@@ -290,33 +364,11 @@ export const activeDefenseMiddleware = async (req, res, next) => {
           strike_count: ban.banNumber * STRIKE_THRESHOLD,
           severity: "HIGH",
           timestamp,
-          mode
+          mode,
+          ...defIntel,
+          stage: resolveStage("DEFENSE", "BLOCKED_BANNED_IP")
         };
         await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(defenseEvent));
-
-        // 2. Emit ATTACK Event
-        const attackEvent = {
-          event_id: crypto.randomUUID(),
-          correlation_id,
-          event_type: "ATTACK",
-          action: "BLOCKED_REQUEST",
-          source_ip: ip,
-          ip_type,
-          user_agent,
-          agent_type: "EXTERNAL",
-          target_type: "API",
-          target_endpoint: req.originalUrl,
-          result: "BLOCKED",
-          severity: "MEDIUM",
-          timestamp,
-          mode,
-          metadata: {
-            route: req.originalUrl,
-            method: req.method,
-            reason: ban.reason
-          }
-        };
-        await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(attackEvent));
         
       } catch (err) {
         logger.error('Failed to pipe events to Redis stream', { error: err.message });

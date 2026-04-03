@@ -380,17 +380,23 @@ async function main() {
   const enriched = enrichEvents(sorted);
 
   // 6b. Apply Strict Sequence Tracking (Per Group)
-  const groupIndexMap = new Map();
+  // MODIFIED
+  const correlationIndexMap = new Map();
+  const correlationParentMap = new Map();
 
   enriched.forEach((e) => {
-    const groupId = e.event_group_id;
+    const groupId = e.correlation_id || e.event_group_id;
 
-    const currentIndex = groupIndexMap.get(groupId) || 0;
+    const currentIndex = correlationIndexMap.get(groupId) || 0;
     const nextIndex = currentIndex + 1;
+    
+    const parentId = correlationParentMap.get(groupId) || null;
 
-    groupIndexMap.set(groupId, nextIndex);
+    correlationIndexMap.set(groupId, nextIndex);
+    correlationParentMap.set(groupId, e.event_id);
 
     e.event_sequence_index = nextIndex;
+    e.parent_event_id = parentId;
   });
 
   // 7. Validate schema

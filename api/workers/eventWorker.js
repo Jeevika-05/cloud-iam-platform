@@ -148,6 +148,31 @@ async function sendToDLQ(messageId, rawData, reason) {
   }
 }
 
+// ADDED
+async function enrichSequenceAndParent(correlationId, eventId) {
+  const seqKey = `seq:correlation:${correlationId}`;
+  const parentKey = `parent:correlation:${correlationId}`;
+  
+  const script = `
+    local seq_key = KEYS[1]
+    local parent_key = KEYS[2]
+    local event_id = ARGV[1]
+    
+    local index = redis.call('INCR', seq_key)
+    if index == 1 then
+      redis.call('EXPIRE', seq_key, 86400)
+    end
+    
+    local parent_id = redis.call('GET', parent_key)
+    redis.call('SET', parent_key, event_id, 'EX', 86400)
+    
+    return {index, parent_id}
+  `;
+  
+  const [index, parentId] = await redisClient.eval(script, 2, seqKey, parentKey, eventId);
+  return [index, parentId || null];
+}
+
 // ─────────────────────────────────────────────
 // PROCESS ONE MESSAGE
 // Returns true when the caller should ACK.
@@ -172,6 +197,16 @@ async function processMessage(messageId, keyValues) {
   } catch {
     await sendToDLQ(messageId, rawData, 'JSON_PARSE_ERROR');
     return true; // ACK — unparseable messages must not loop forever
+  }
+
+  // MODIFIED
+  if (eventData.correlation_id && eventData.event_id) {
+    const [index, parentId] = await enrichSequenceAndParent(eventData.correlation_id, eventData.event_id);
+    eventData.event_sequence_index = index;
+    eventData.parent_event_id = parentId;
+  } else {
+    eventData.event_sequence_index = 1;
+    eventData.parent_event_id = null;
   }
 
   // ─────────────────────────────────────────────

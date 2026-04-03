@@ -1,6 +1,6 @@
 {
   "_metadata": {
-    "generated_at": "2026-04-03T10:06:18.441Z",
+    "generated_at": "2026-04-03T11:48:11.270Z",
     "source": "neo4j_event_merger",
     "version": "1.0.0",
     "attack_source": "results.json",
@@ -10,7 +10,7 @@
     "defense_events": 97,
     "time_range": {
       "first": "2026-04-02T17:37:05.951Z",
-      "last": "2026-04-03T10:06:17.907076246+00:00"
+      "last": "2026-04-03T11:48:10.677370269+00:00"
     }
   },
   "events": [
@@ -43,7 +43,8 @@
       "reason": "TOKEN_REUSE_DETECTED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "84838f8f-93d0-4f0a-ae24-e88e66efc280",
@@ -74,7 +75,8 @@
       "reason": "TOKEN_REUSE_DETECTED:FAILURE",
       "strike_count": 2,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "ee7814f4-19af-4320-91fb-7eb3456da7d7",
@@ -105,7 +107,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "4f9f79ea-abda-4a9f-81a3-6cde0dcb2578",
@@ -136,7 +139,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 2,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "a0ed0585-0100-42ca-9038-bd280f749717",
@@ -167,7 +171,8 @@
       "reason": "ABAC_ACCESS_DENIED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "9a5025a6-b745-4ac9-8a81-3f5af7ac33c1",
@@ -198,7 +203,8 @@
       "reason": "RBAC_ACCESS_DENIED:FAILURE",
       "strike_count": 2,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "2aa1aef2-98c5-4647-8301-2d2259df3653",
@@ -229,7 +235,8 @@
       "reason": "RBAC_ACCESS_DENIED:FAILURE",
       "strike_count": 3,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "6b61a705-8362-46dd-bd10-5dc992486a98",
@@ -260,7 +267,8 @@
       "reason": "RBAC_ACCESS_DENIED:FAILURE",
       "strike_count": 4,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "92610c40-a719-4e65-a0ad-465bd13d3c9d",
@@ -291,7 +299,8 @@
       "reason": "TOKEN_REUSE_DETECTED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "a86ee0af-037f-413d-97c7-7ebf84ea7073",
@@ -322,7 +331,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "8fa7f101-76a7-4765-a7f4-5dbaf418850c",
@@ -353,7 +363,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 2,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "c0e04cbe-ac04-4e31-9089-fdbaa2096632",
@@ -384,7 +395,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 3,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "0c44c246-b4d3-478a-a5ed-eda31e31abfa",
@@ -415,7 +427,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 4,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "cea30024-1a20-4f7a-9a55-ed23af2cd43c",
@@ -446,7 +459,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 5,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "1716ee78-8315-4fe3-bb43-12fca78fcced",
@@ -477,7 +491,8 @@
       "reason": "UNKNOWN",
       "strike_count": 1,
       "ban_duration": 600,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "579fe9b8-5a08-4ef4-93ca-3392ddf9d4fb",
@@ -508,7 +523,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 5,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "ab4f950c-bcff-4bb0-ada6-b3b5391d894f",
@@ -539,7 +555,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "6c638063-0b8d-46a3-bb79-6d3a5874efa3",
@@ -570,7 +587,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 5,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "3e737382-e7fd-478e-b02c-2621843bfcae",
@@ -601,7 +619,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "208a1980-d94f-4d51-b654-e197f24e35e7",
@@ -632,7 +651,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 5,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "dda849e7-47bf-411d-856d-3c5996c25ae3",
@@ -663,7 +683,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "61dac3c2-5085-4acd-8c14-fe49b1a8a554",
@@ -694,7 +715,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "b54fdb46-528f-427b-86d1-9aed1713b558",
@@ -725,7 +747,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "5f2f548c-949f-4110-bc8f-827e52332fd8",
@@ -756,7 +779,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "16159795-5f94-411e-9e9e-0ed72ec93df8",
@@ -787,7 +811,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "74034b69-1b37-4a5f-b86c-cf52fd727076",
@@ -818,7 +843,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "ef74bcba-e3fc-4bb1-b7de-e1616e3d3ddf",
@@ -849,7 +875,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "72a06f00-83c7-45ac-bfe0-d51d6edec1ce",
@@ -880,7 +907,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "46f8dbcc-61f6-4be6-b304-3d40430c6256",
@@ -911,7 +939,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "9f6f060a-c84b-4711-a1b9-694f5183fa5e",
@@ -942,7 +971,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "bfdac10b-71ac-4905-8c53-3aaabe7124a9",
@@ -973,7 +1003,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "04d1b6df-a45a-480a-b1db-ab1f35d0a370",
@@ -1004,7 +1035,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "fd541e5e-76d5-4f54-a521-f0075717fed4",
@@ -1035,7 +1067,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "bb685d2c-ca17-4992-b0c6-5de65a100708",
@@ -1066,7 +1099,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "35115645-e851-4f55-a015-63d5d83c1f4f",
@@ -1097,7 +1131,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "fefcac60-333b-4ce9-a29f-391ff3d8a8e9",
@@ -1128,7 +1163,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "dd9eed5c-6e8b-4819-99d5-178dfc83828d",
@@ -1159,7 +1195,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "ea896e35-a955-46f6-9c85-1f97f6e58008",
@@ -1190,7 +1227,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "c9697048-d4dc-4d18-8ac2-479294115ac2",
@@ -1221,7 +1259,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "9011d8c9-1d52-41f3-9a8a-d0fc7823bcf8",
@@ -1252,7 +1291,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "412630d2-dcb6-4765-b8fd-dc8202579a27",
@@ -1283,7 +1323,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "fe4ce865-6b19-443c-9708-6005c6365fe7",
@@ -1314,7 +1355,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "2425cb14-5fe1-4338-b0a7-a4044409d3ba",
@@ -1345,7 +1387,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "677f42cf-186c-40c5-ac74-29b9389b7f32",
@@ -1376,7 +1419,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "a240e667-cbf5-46d1-b9b7-dd023f281e55",
@@ -1407,7 +1451,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "e428855d-683d-4927-96ae-57ebae296fa2",
@@ -1438,7 +1483,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "59219582-cd5e-4517-87b5-a66f82765e0b",
@@ -1469,7 +1515,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "6d6f1574-221b-4447-b3d6-0ab9b95bf3cb",
@@ -1500,7 +1547,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "1e5f7cf2-b907-4a0c-aac8-046f735262c3",
@@ -1531,7 +1579,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "7116ffe5-5af6-4d1f-8d3e-4a888dba00c0",
@@ -1562,7 +1611,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "2dabd688-8cac-4cc1-8e07-ceb8ca25cbdc",
@@ -1593,7 +1643,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "f5181661-dc17-47c2-be5b-a73adf1a3573",
@@ -1624,7 +1675,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "c04a66c7-01a9-47ad-99f3-3f7e2e3665df",
@@ -1655,7 +1707,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "91788a37-2aa6-4e6a-b0fb-12f160f8d362",
@@ -1686,7 +1739,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "b50f27ba-6e9e-4358-b013-237300abeadf",
@@ -1717,7 +1771,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "3adbd656-e1ab-4bf5-8f14-354cd5b94b4b",
@@ -1748,7 +1803,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "ce2ab724-dced-4323-bf92-b1bdaca5400e",
@@ -1779,7 +1835,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "439e32c7-b909-4575-b83f-7336d963f1d5",
@@ -1810,7 +1867,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "82bffb0f-3500-4d65-b149-4f42a4134de0",
@@ -1841,7 +1899,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "184c0e5d-17c4-49cc-a53f-3fbd48942bad",
@@ -1872,7 +1931,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "8456dac0-5d7d-4d3d-8bca-f5b4041193da",
@@ -1903,7 +1963,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "99bf0a62-9e9e-43bb-b165-97219392d553",
@@ -1934,7 +1995,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "329eb189-ed41-4543-9b03-816edc45be14",
@@ -1965,7 +2027,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "aee37f96-eeca-4a30-bba4-167ffad6e423",
@@ -1996,7 +2059,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "429b235c-24cb-4d58-bf2d-c842e6a39cb6",
@@ -2027,7 +2091,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "e20e071d-3d82-4079-9649-75642233153f",
@@ -2058,7 +2123,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "92939075-4b2a-484f-93d6-19c6e057b6bf",
@@ -2089,7 +2155,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "fe9bbc14-a4f3-4150-bb2e-9882b58b276f",
@@ -2120,7 +2187,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "a536e250-7148-4aef-a9c2-db9af7e00869",
@@ -2151,7 +2219,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "19edf0c0-61fe-4eaf-99f8-5fd498d0e75c",
@@ -2182,7 +2251,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "7d5c6913-54e7-4dcb-a283-4427a5f97191",
@@ -2213,7 +2283,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "51427601-4a85-4a36-97d6-aaf556f2dfab",
@@ -2244,7 +2315,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "9117b363-32a8-484f-9e3c-be0c50596bf3",
@@ -2275,7 +2347,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "76da1655-717d-4442-a1ae-85024387d844",
@@ -2306,7 +2379,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "dcec4b64-1df8-4e55-8616-8aa4767fe340",
@@ -2337,7 +2411,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "df6cabcf-0a2b-4fa8-b7c0-4e78d46e6e29",
@@ -2368,7 +2443,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "e2137516-4c23-438f-9822-cd240bf1eb9a",
@@ -2399,7 +2475,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "8dc61bf0-050d-4f9a-bfd0-648adb268b9a",
@@ -2430,7 +2507,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "4ec55114-25eb-4f6e-ae08-75dce1300694",
@@ -2461,7 +2539,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "f503c525-2cdf-40fa-8aa4-3d2de38a6330",
@@ -2492,7 +2571,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "d1d8c141-a45b-452c-a2c1-2491e59d3bf5",
@@ -2523,7 +2603,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "27db0d8f-a932-49b0-aeaa-8449602c04c6",
@@ -2554,7 +2635,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "d1dc3de6-95fc-44a0-9bf0-36b74394ed10",
@@ -2585,7 +2667,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "96cd48fe-83bf-4de7-8c99-8746d371d3fc",
@@ -2616,7 +2699,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "0287dd41-2f12-4036-a998-3a5a3d73bba5",
@@ -2647,7 +2731,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "9dbe606b-7a39-4143-b8dd-3d083fd6827e",
@@ -2678,7 +2763,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "fa02cb5f-03e8-495d-bc0b-5488906ef899",
@@ -2709,7 +2795,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "69a3808d-d784-414c-8e47-a78c9e458070",
@@ -2740,7 +2827,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "fd96de83-11f0-4955-a727-6bd691a8ea7f",
@@ -2771,7 +2859,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "8df9866c-2c93-488f-b965-3f65d105c714",
@@ -2802,7 +2891,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "4a918139-c485-414d-b1ff-f2d7580bc3d0",
@@ -2833,7 +2923,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "48dac73f-816c-4d03-bb04-d48034311455",
@@ -2864,7 +2955,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "4db98c4c-f4b2-4df4-b30e-5ec1e3d43181",
@@ -2895,7 +2987,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "52bc5faf-a033-4613-a084-fd48520b1b30",
@@ -2926,7 +3019,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "d97e4ac3-c336-4413-b927-70fa63ed91ad",
@@ -2957,7 +3051,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "3dccef71-ff13-4574-973a-b5a724604e77",
@@ -2988,7 +3083,8 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
       "event_id": "ffed63ac-5770-4e35-b44f-075020b2858e",
@@ -3019,12 +3115,13 @@
       "reason": "LOGIN_FAILED:FAILURE",
       "strike_count": 1,
       "ban_duration": null,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "6fd12cf8-a604-4205-a18b-222c07ec01d9",
-      "correlation_id": "6fd12cf8-a604-4205-a18b-222c07ec01d9",
-      "event_group_id": "6fd12cf8-a604-4205-a18b-222c07ec01d9",
+      "event_id": "787b5495-0fe7-4853-9bc1-e1da70004d3a",
+      "correlation_id": "787b5495-0fe7-4853-9bc1-e1da70004d3a",
+      "event_group_id": "787b5495-0fe7-4853-9bc1-e1da70004d3a",
       "user_id": "a3391056-45fb-4160-ab80-9f539c779fd3",
       "user_email": "atk-token-race@test.com",
       "session_id": "NO_SESSION_a3391056-45fb-4160-ab80-9f539c779fd3-192.168.1.100",
@@ -3040,19 +3137,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:09.423574236+00:00",
+      "timestamp": "2026-04-03T11:48:03.356747564+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-TOKEN_RACE-192.168.1.100-29586846",
+      "event_signature": "ATTACK-TOKEN_RACE-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "04e28e4e-bdb9-437b-a530-152599de97e8",
-      "correlation_id": "04e28e4e-bdb9-437b-a530-152599de97e8",
-      "event_group_id": "04e28e4e-bdb9-437b-a530-152599de97e8",
+      "event_id": "db5ffa4d-1e3b-40b7-8490-648816ab7413",
+      "correlation_id": "db5ffa4d-1e3b-40b7-8490-648816ab7413",
+      "event_group_id": "db5ffa4d-1e3b-40b7-8490-648816ab7413",
       "user_id": null,
       "user_email": "admin_attack@example.com",
       "session_id": "NO_SESSION_admin_attack@example.com-192.168.1.100",
@@ -3068,19 +3166,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:09.670089836+00:00",
+      "timestamp": "2026-04-03T11:48:03.560653038+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-MFA_BRUTE_FORCE_SINGLE_IP-192.168.1.100-29586846",
+      "event_signature": "ATTACK-MFA_BRUTE_FORCE_SINGLE_IP-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 0.8,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "af25e59b-b879-4ab0-9ee8-99a44c9575cc",
-      "correlation_id": "af25e59b-b879-4ab0-9ee8-99a44c9575cc",
-      "event_group_id": "af25e59b-b879-4ab0-9ee8-99a44c9575cc",
+      "event_id": "7b3fe15e-13a2-4104-a32b-143dd85e01f4",
+      "correlation_id": "7b3fe15e-13a2-4104-a32b-143dd85e01f4",
+      "event_group_id": "7b3fe15e-13a2-4104-a32b-143dd85e01f4",
       "user_id": null,
       "user_email": "atk-idor@test.com",
       "session_id": "NO_SESSION_atk-idor@test.com-192.168.1.100",
@@ -3096,19 +3195,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:10.082272733+00:00",
+      "timestamp": "2026-04-03T11:48:03.957769006+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-IDOR-192.168.1.100-29586846",
+      "event_signature": "ATTACK-IDOR-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 0.8,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "37d4b625-0089-4cd0-8117-39e020ae22d8",
-      "correlation_id": "37d4b625-0089-4cd0-8117-39e020ae22d8",
-      "event_group_id": "37d4b625-0089-4cd0-8117-39e020ae22d8",
+      "event_id": "e1d43e9f-e4a7-4dc8-8b69-f9ba5791f944",
+      "correlation_id": "e1d43e9f-e4a7-4dc8-8b69-f9ba5791f944",
+      "event_group_id": "e1d43e9f-e4a7-4dc8-8b69-f9ba5791f944",
       "user_id": "0787e578-d8b6-4802-9076-708146ff4e7c",
       "user_email": "atk-jwt@test.com",
       "session_id": "NO_SESSION_0787e578-d8b6-4802-9076-708146ff4e7c-192.168.1.100",
@@ -3124,19 +3224,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:10.423727163+00:00",
+      "timestamp": "2026-04-03T11:48:04.244939960+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-JWT_TAMPER-192.168.1.100-29586846",
+      "event_signature": "ATTACK-JWT_TAMPER-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "e3161aff-f6fa-46a6-a224-1e0216f04603",
-      "correlation_id": "e3161aff-f6fa-46a6-a224-1e0216f04603",
-      "event_group_id": "e3161aff-f6fa-46a6-a224-1e0216f04603",
+      "event_id": "9357914b-f5b3-4c60-9e61-17766fad778c",
+      "correlation_id": "9357914b-f5b3-4c60-9e61-17766fad778c",
+      "event_group_id": "9357914b-f5b3-4c60-9e61-17766fad778c",
       "user_id": "efa5e86a-2235-4e9b-8de3-7a383182ec5f",
       "user_email": "atk-sess-reuse@test.com",
       "session_id": "NO_SESSION_efa5e86a-2235-4e9b-8de3-7a383182ec5f-192.168.1.100",
@@ -3152,19 +3253,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:11.513199908+00:00",
+      "timestamp": "2026-04-03T11:48:05.182575124+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-SESSION_REUSE-192.168.1.100-29586846",
+      "event_signature": "ATTACK-SESSION_REUSE-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "2cab2937-1dfb-49ed-90e3-3ca32914dd76",
-      "correlation_id": "2cab2937-1dfb-49ed-90e3-3ca32914dd76",
-      "event_group_id": "2cab2937-1dfb-49ed-90e3-3ca32914dd76",
+      "event_id": "7e294286-4901-4832-ba21-9cc7ca33d08c",
+      "correlation_id": "7e294286-4901-4832-ba21-9cc7ca33d08c",
+      "event_group_id": "7e294286-4901-4832-ba21-9cc7ca33d08c",
       "user_id": "ed2cbdfe-e340-48fa-bc4d-c95551942cb6",
       "user_email": "atk-brute@test.com",
       "session_id": "NO_SESSION_ed2cbdfe-e340-48fa-bc4d-c95551942cb6-192.168.1.100",
@@ -3180,19 +3282,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:12.416968877+00:00",
+      "timestamp": "2026-04-03T11:48:06.002313993+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-PASSWORD_BRUTE-192.168.1.100-29586846",
+      "event_signature": "ATTACK-PASSWORD_BRUTE-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "4e2df9a3-6a97-4fef-9945-565101d939cc",
-      "correlation_id": "4e2df9a3-6a97-4fef-9945-565101d939cc",
-      "event_group_id": "4e2df9a3-6a97-4fef-9945-565101d939cc",
+      "event_id": "0a3a71e0-53b1-4e0b-86f0-bdd0e9d2fa21",
+      "correlation_id": "0a3a71e0-53b1-4e0b-86f0-bdd0e9d2fa21",
+      "event_group_id": "0a3a71e0-53b1-4e0b-86f0-bdd0e9d2fa21",
       "user_id": "6cc4b2bf-c58f-4b15-ad4b-aa839b7479bc",
       "user_email": "atk-logout@test.com",
       "session_id": "NO_SESSION_6cc4b2bf-c58f-4b15-ad4b-aa839b7479bc-192.168.1.100",
@@ -3208,19 +3311,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:13.279123218+00:00",
+      "timestamp": "2026-04-03T11:48:06.818271311+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-SESSION_INVALID-192.168.1.100-29586846",
+      "event_signature": "ATTACK-SESSION_INVALID-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "7d571bcc-477b-45bc-86b1-1e33abf5a014",
-      "correlation_id": "7d571bcc-477b-45bc-86b1-1e33abf5a014",
-      "event_group_id": "7d571bcc-477b-45bc-86b1-1e33abf5a014",
+      "event_id": "0d6c4eeb-7fb6-40b2-9845-50c328cec4cc",
+      "correlation_id": "0d6c4eeb-7fb6-40b2-9845-50c328cec4cc",
+      "event_group_id": "0d6c4eeb-7fb6-40b2-9845-50c328cec4cc",
       "user_id": "b9816195-4a12-435b-a8aa-c35baf7c3659",
       "user_email": "atk-flood@test.com",
       "session_id": "NO_SESSION_b9816195-4a12-435b-a8aa-c35baf7c3659-192.168.1.100",
@@ -3236,19 +3340,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:13.912201819+00:00",
+      "timestamp": "2026-04-03T11:48:07.256406963+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-RATE_FLOOD-192.168.1.100-29586846",
+      "event_signature": "ATTACK-RATE_FLOOD-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "cc361a55-d44a-4f8e-9047-d1a1f74c0315",
-      "correlation_id": "cc361a55-d44a-4f8e-9047-d1a1f74c0315",
-      "event_group_id": "cc361a55-d44a-4f8e-9047-d1a1f74c0315",
+      "event_id": "c6114b43-42f1-41b6-aeb8-93af1447423a",
+      "correlation_id": "c6114b43-42f1-41b6-aeb8-93af1447423a",
+      "event_group_id": "c6114b43-42f1-41b6-aeb8-93af1447423a",
       "user_id": "06bcd744-121a-43d2-aa33-ebaca20dacc7",
       "user_email": "atk-csrf@test.com",
       "session_id": "NO_SESSION_06bcd744-121a-43d2-aa33-ebaca20dacc7-192.168.1.100",
@@ -3264,19 +3369,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:14.221798355+00:00",
+      "timestamp": "2026-04-03T11:48:07.524529755+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-CSRF-192.168.1.100-29586846",
+      "event_signature": "ATTACK-CSRF-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "42a10e96-3d14-4706-a839-29ac616d8d25",
-      "correlation_id": "42a10e96-3d14-4706-a839-29ac616d8d25",
-      "event_group_id": "42a10e96-3d14-4706-a839-29ac616d8d25",
+      "event_id": "593c4d99-7095-4d94-9e53-e0e0c90f7476",
+      "correlation_id": "593c4d99-7095-4d94-9e53-e0e0c90f7476",
+      "event_group_id": "593c4d99-7095-4d94-9e53-e0e0c90f7476",
       "user_id": "b26b52a2-e2b2-4c51-9bd9-c288e48d3f67",
       "user_email": "atk-mass@test.com",
       "session_id": "NO_SESSION_b26b52a2-e2b2-4c51-9bd9-c288e48d3f67-192.168.1.100",
@@ -3292,19 +3398,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:14.553893016+00:00",
+      "timestamp": "2026-04-03T11:48:07.789836950+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-MASS_ASSIGNMENT-192.168.1.100-29586846",
+      "event_signature": "ATTACK-MASS_ASSIGNMENT-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "71ceeb96-4742-4c86-b682-658204fab4b4",
-      "correlation_id": "71ceeb96-4742-4c86-b682-658204fab4b4",
-      "event_group_id": "71ceeb96-4742-4c86-b682-658204fab4b4",
+      "event_id": "ae38021b-ad99-4a06-b4c3-43e5078d9377",
+      "correlation_id": "ae38021b-ad99-4a06-b4c3-43e5078d9377",
+      "event_group_id": "ae38021b-ad99-4a06-b4c3-43e5078d9377",
       "user_id": "c1b3913e-3734-4324-a9b7-38864d42bc6d",
       "user_email": "atk-token-abuse@test.com",
       "session_id": "NO_SESSION_c1b3913e-3734-4324-a9b7-38864d42bc6d-192.168.1.100",
@@ -3320,19 +3427,20 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:14.881924543+00:00",
+      "timestamp": "2026-04-03T11:48:08.069021075+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-ACCESS_TOKEN_ABUSE-192.168.1.100-29586846",
+      "event_signature": "ATTACK-ACCESS_TOKEN_ABUSE-192.168.1.100-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 1,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     },
     {
-      "event_id": "d6658679-c776-44d6-a169-284e5c35d5ca",
-      "correlation_id": "d6658679-c776-44d6-a169-284e5c35d5ca",
-      "event_group_id": "d6658679-c776-44d6-a169-284e5c35d5ca",
+      "event_id": "a9b3b06d-a887-4466-b8f4-9e3d4d900081",
+      "correlation_id": "a9b3b06d-a887-4466-b8f4-9e3d4d900081",
+      "event_group_id": "a9b3b06d-a887-4466-b8f4-9e3d4d900081",
       "user_id": null,
       "user_email": "admin_attack@example.com",
       "session_id": "NO_SESSION_admin_attack@example.com-10.10.0.1",
@@ -3348,14 +3456,15 @@
       "severity": "LOW",
       "risk_score": null,
       "risk_level": null,
-      "timestamp": "2026-04-03T10:06:17.907076246+00:00",
+      "timestamp": "2026-04-03T11:48:10.677370269+00:00",
       "mode": "INFERRED",
       "is_attack_related": true,
       "is_defense_triggered": false,
-      "event_signature": "ATTACK-MFA_BRUTE_FORCE_DISTRIBUTED-10.10.0.1-29586846",
+      "event_signature": "ATTACK-MFA_BRUTE_FORCE_DISTRIBUTED-10.10.0.1-29586948",
       "events_per_minute_bucket": 1,
       "correlation_confidence": 0.8,
-      "event_sequence_index": 1
+      "event_sequence_index": 1,
+      "parent_event_id": null
     }
   ]
 }
