@@ -381,10 +381,17 @@ export const seed = Object.freeze({
 // ─────────────────────────────────────────────────────────────
 // RISK COMPUTE CONFIG
 // ─────────────────────────────────────────────────────────────
+// Helper: parseInt returns NaN for undefined, and NaN ?? fallback is still NaN.
+// This safely handles both unset vars (NaN) AND intentional zero values.
+const safeInt = (val, fallback) => {
+  const parsed = parseInt(val, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+};
+
 export const risk = Object.freeze({
-  low:    parseInt(process.env.RISK_THRESHOLD_LOW, 10)    || 30,
-  medium: parseInt(process.env.RISK_THRESHOLD_MEDIUM, 10) || 60,
-  high:   parseInt(process.env.RISK_THRESHOLD_HIGH, 10)   || 85,
+  low:    safeInt(process.env.RISK_THRESHOLD_LOW,    30),
+  medium: safeInt(process.env.RISK_THRESHOLD_MEDIUM, 60),
+  high:   safeInt(process.env.RISK_THRESHOLD_HIGH,   85),
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -71,25 +71,40 @@ function loadAttackEvents(filePath) {
 
   console.log(`[MERGE] Found ${events.length} ATTACK events`);
 
-  // Normalize: ensure all events have the mode field
-  return events.map((e) => ({
-    event_id: e.event_id,
-    correlation_id: e.correlation_id,
-    user_id: e.user_id,
-    user_email: e.user_email || null,
-    event_type: 'ATTACK',
-    action: e.action,
-    source_ip: e.source_ip,
-    ip_type: e.ip_type || 'SIMULATED',
-    user_agent: e.user_agent || 'attack-engine',
-    agent_type: e.agent_type || 'SIMULATED',
-    target_type: e.target_type || 'API',
-    target_endpoint: e.target_endpoint,
-    result: e.result,
-    severity: e.severity,
-    timestamp: e.timestamp,
-    mode: raw.mode || (raw.active_defender_status === 'ENABLED' ? 'AFTER_ACTIVE_DEFENDER' : 'INFERRED'),
-  }));
+  // UUID validation for identity normalization
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUUID = (v) => typeof v === 'string' && UUID_RE.test(v);
+
+  // Normalize: ensure consistent schema for Neo4j graph modeling
+  return events.map((e) => {
+    // Identity normalization: user_id MUST be UUID or null.
+    // If the Rust engine set user_id to an email, move it to user_email.
+    const rawUserId = e.user_id;
+    const userId = isUUID(rawUserId) ? rawUserId : null;
+    const userEmail = e.user_email || (!isUUID(rawUserId) ? rawUserId : null);
+
+    return {
+      event_id: e.event_id,
+      correlation_id: e.correlation_id,
+      user_id: userId,
+      user_email: userEmail,
+      session_id: e.session_id || null,
+      event_type: 'ATTACK',
+      action: e.action,
+      source_ip: e.source_ip,
+      ip_type: e.ip_type || 'SIMULATED',
+      user_agent: e.user_agent || 'attack-engine',
+      agent_type: e.agent_type || 'SIMULATED',
+      target_type: e.target_type || 'API',
+      target_endpoint: e.target_endpoint,
+      result: e.result,
+      severity: e.severity,
+      risk_score: e.risk_score ?? null,
+      risk_level: e.risk_level ?? null,
+      timestamp: e.timestamp,
+      mode: raw.mode || (raw.active_defender_status === 'ENABLED' ? 'AFTER_ACTIVE_DEFENDER' : 'INFERRED'),
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -125,6 +140,138 @@ async function loadDefenseEvents(apiUrl, token, since) {
     console.warn('[WARN] Continuing with ATTACK events only');
     return [];
   }
+}
+
+// ─────────────────────────────────────────────
+// SCHEMA ENRICHMENT & CORRELATION
+// ─────────────────────────────────────────────
+function enrichEvents(events) {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUUID = (v) => typeof v === 'string' && UUID_RE.test(v);
+
+  // Time-aware map: tracks most recent attack { id, tsMs } per correlation key
+  const lastAttackByKey = new Map();
+  const AGENT_TYPES = ["USER", "SYSTEM", "ATTACK_ENGINE"];
+  const ATTACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max expiration for linkage
+
+  // ============================================
+  // PASS 1: Normalization & Map Relationships
+  // ============================================
+  const pass1 = events.map((e) => {
+    // 1. Identity Normalization
+    let finalUserId = e.user_id === 'SYSTEM' ? null : e.user_id;
+    let finalUserEmail = e.user_email === 'SYSTEM' ? null : e.user_email;
+
+    if (!isUUID(finalUserId)) {
+      if (finalUserId && !finalUserEmail) finalUserEmail = finalUserId;
+      finalUserId = null;
+    }
+
+    // 2. Event Normalization
+    let eventType = e.event_type ? e.event_type.toUpperCase() : 'UNKNOWN';
+    if (!['ATTACK', 'DEFENSE', 'AUTH', 'SECURITY', 'SYSTEM'].includes(eventType)) {
+       eventType = 'SYSTEM';
+    }
+
+    let action = e.action || 'UNKNOWN';
+    if (action.includes('LOGIN') && action.includes('FAIL')) action = 'LOGIN_FAILED';
+
+    const tsMs = new Date(e.timestamp).getTime();
+
+    // 3. Correlation Integrity & Linkage
+    const identityKey = finalUserId || finalUserEmail || e.session_id || 'anon';
+    const baseKey = `${identityKey}-${e.source_ip || 'unknown'}`;
+    
+    let correlationId = e.correlation_id;
+    if (eventType === 'ATTACK') {
+      correlationId = e.event_id; // Root attack accurately to sync with lookup matches
+      lastAttackByKey.set(baseKey, { id: e.event_id, ts: tsMs });
+    } else if (eventType === 'DEFENSE') {
+      const lastAttack = lastAttackByKey.get(baseKey);
+      // Link only if within timeout window to prevent long-running merging
+      if (lastAttack && (tsMs - lastAttack.ts <= ATTACK_TIMEOUT_MS)) {
+        correlationId = lastAttack.id;
+      }
+    }
+
+    // Strict Attack Clustering Root
+    const eventGroupId = correlationId || e.event_id;
+
+    // 4. Session Protection (no global NO_SESSION collapse)
+    const sessionId = e.session_id ?? `NO_SESSION_${identityKey}-${e.source_ip || 'unknown'}`;
+
+    // 5. Risk Scoring & System Classification
+    let riskLevel = e.risk_level ?? e.metadata?.risk_level ?? (eventType === 'DEFENSE' ? (e.severity ?? null) : null);
+    let riskScore = e.risk_score ?? e.metadata?.risk_score ?? (eventType === 'DEFENSE' && e.strike_count ? e.strike_count * 10 : null);
+    
+    let agentType = e.agent_type ? e.agent_type.toUpperCase() : null;
+    const ipType = e.ip_type || (e.source_ip?.startsWith('192.168') ? 'SIMULATED' : 'REAL');
+    
+    if (ipType === 'SIMULATED') {
+      agentType = 'ATTACK_ENGINE';
+    } else if (!agentType || !AGENT_TYPES.includes(agentType)) {
+      agentType = e.user_agent?.toLowerCase().includes('attack') ? 'ATTACK_ENGINE' : 'USER';
+    }
+
+    const timeBucket = Math.floor(tsMs / 60000);
+
+    return {
+      ...e,
+      finalUserId, finalUserEmail, eventType, action, tsMs,
+      correlationId, eventGroupId, sessionId, riskLevel, riskScore,
+      agentType, ipType, timeBucket
+    };
+  });
+
+  // ============================================
+  // MIDDLE: Pre-calculate Group-Scoped Metrics
+  // ============================================
+  const groupBurstMap = new Map(); // e.g., "groupId-timeBucket" -> total count
+  pass1.forEach(e => {
+    const burstKey = `${e.eventGroupId}-${e.timeBucket}`;
+    groupBurstMap.set(burstKey, (groupBurstMap.get(burstKey) || 0) + 1);
+  });
+
+  // ============================================
+  // PASS 2: Construct Final Output
+  // ============================================
+  return pass1.map((e) => {
+    const burstKey = `${e.eventGroupId}-${e.timeBucket}`;
+    const burstScore = groupBurstMap.get(burstKey) || 1;
+    
+    return {
+      event_id: e.event_id,
+      correlation_id: e.correlationId || e.event_id, 
+      event_group_id: e.eventGroupId,
+      user_id: e.finalUserId,
+      user_email: e.finalUserEmail, 
+      session_id: e.sessionId,
+      event_type: e.eventType,
+      action: e.action,
+      source_ip: e.source_ip || 'unknown',
+      ip_type: e.ipType,
+      user_agent: e.user_agent || 'unknown',
+      agent_type: e.agentType,
+      target_type: e.target_type || 'API',
+      target_endpoint: e.target_endpoint || 'unknown',
+      result: e.result || 'UNKNOWN',
+      severity: e.severity || null, 
+      risk_score: e.riskScore,
+      risk_level: e.riskLevel,
+      timestamp: e.timestamp,
+      mode: e.mode || 'INFERRED',
+      is_attack_related: e.eventType === 'ATTACK' || (!!e.correlationId && e.correlationId !== e.event_id),
+      is_defense_triggered: e.eventType === 'DEFENSE',
+      event_signature: `${e.eventType}-${e.action}-${e.source_ip || 'unknown'}-${e.timeBucket}`,
+      events_per_minute_bucket: burstScore,
+      correlation_confidence: parseFloat(( (e.finalUserId ? 1.0 : (e.finalUserEmail ? 0.8 : 0.5)) + (e.session_id ? 0.5 : 0.0) ).toFixed(1)),
+      ...(e.eventType === 'DEFENSE' && {
+        reason: e.reason || 'UNKNOWN',
+        strike_count: e.strike_count || 1,
+        ban_duration: e.ban_duration || null
+      })
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -168,22 +315,37 @@ const REQUIRED_FIELDS = [
   'event_id', 'event_type', 'action', 'source_ip', 'severity', 'timestamp',
 ];
 
+// Fields that should be present for complete Neo4j graph modeling
+const RECOMMENDED_FIELDS = [
+  'user_id', 'target_endpoint', 'result', 'agent_type', 'target_type',
+  'risk_score', 'risk_level',
+];
+
 function validateEvents(events) {
   let warnings = 0;
+  let recommendations = 0;
 
   for (const event of events) {
     for (const field of REQUIRED_FIELDS) {
       if (!event[field]) {
-        console.warn(`[SCHEMA] Missing field '${field}' in event ${event.event_id || 'UNKNOWN'} (action: ${event.action})`);
+        console.warn(`[SCHEMA] Missing required field '${field}' in event ${event.event_id || 'UNKNOWN'} (action: ${event.action})`);
         warnings++;
+      }
+    }
+    for (const field of RECOMMENDED_FIELDS) {
+      if (event[field] === undefined || event[field] === null) {
+        recommendations++;
       }
     }
   }
 
   if (warnings === 0) {
-    console.log('[SCHEMA] ✅ All events pass schema validation');
+    console.log('[SCHEMA] ✅ All events pass required field validation');
   } else {
-    console.warn(`[SCHEMA] ⚠️  ${warnings} field warnings found`);
+    console.warn(`[SCHEMA] ⚠️  ${warnings} required field warnings found`);
+  }
+  if (recommendations > 0) {
+    console.log(`[SCHEMA] ℹ️  ${recommendations} recommended fields are null/missing (may affect graph completeness)`);
   }
 }
 
@@ -211,15 +373,32 @@ async function main() {
   // 4. Deduplicate
   const unique = deduplicateEvents(merged);
 
-  // 5. Sort by timestamp
+  // 5. Sort by timestamp (Required for causality linking)
   const sorted = sortByTimestamp(unique);
 
-  // 6. Validate schema
-  validateEvents(sorted);
+  // 6. Enrich Schema and Add Graph Correlation
+  const enriched = enrichEvents(sorted);
 
-  // 7. Build output
-  const attackCount = sorted.filter(e => e.event_type === 'ATTACK').length;
-  const defenseCount = sorted.filter(e => e.event_type === 'DEFENSE').length;
+  // 6b. Apply Strict Sequence Tracking (Per Group)
+  const groupIndexMap = new Map();
+
+  enriched.forEach((e) => {
+    const groupId = e.event_group_id;
+
+    const currentIndex = groupIndexMap.get(groupId) || 0;
+    const nextIndex = currentIndex + 1;
+
+    groupIndexMap.set(groupId, nextIndex);
+
+    e.event_sequence_index = nextIndex;
+  });
+
+  // 7. Validate schema
+  validateEvents(enriched);
+
+  // 8. Build output
+  const attackCount = enriched.filter(e => e.event_type === 'ATTACK').length;
+  const defenseCount = enriched.filter(e => e.event_type === 'DEFENSE').length;
 
   const output = {
     _metadata: {
@@ -228,14 +407,14 @@ async function main() {
       version: '1.0.0',
       attack_source: path.basename(opts.attackFile),
       defense_source: `${opts.apiUrl}/api/v1/audit/events/defense`,
-      total_events: sorted.length,
+      total_events: enriched.length,
       attack_events: attackCount,
       defense_events: defenseCount,
-      time_range: sorted.length > 0
-        ? { first: sorted[0].timestamp, last: sorted[sorted.length - 1].timestamp }
+      time_range: enriched.length > 0
+        ? { first: enriched[0].timestamp, last: enriched[enriched.length - 1].timestamp }
         : null,
     },
-    events: sorted,
+    events: enriched,
   };
 
   // 8. Write output
@@ -253,7 +432,7 @@ async function main() {
     fs.writeFileSync(opts.output, json, 'utf8');
     console.log();
     console.log(`[FILE] Unified events written to: ${opts.output}`);
-    console.log(`[FILE] Total: ${sorted.length} events (${attackCount} ATTACK, ${defenseCount} DEFENSE)`);
+    console.log(`[FILE] Total: ${enriched.length} events (${attackCount} ATTACK, ${defenseCount} DEFENSE)`);
   }
 
   console.log();

@@ -4,15 +4,17 @@
 // Features:
 //   • Sliding-window trust reset (strikes auto-decay via Redis TTL)
 //   • Progressive ban escalation (10m → 1h → 24h)
-//   • Safe IP allowlist (localhost, Docker internal)
+//   • Safe IP allowlist (localhost, Docker internal, simulation)
 //   • Prometheus iam_ip_bans_total counter
 //   • Graceful Redis failure handling (never crashes API)
+//   • Simulation-mode bypass (controlled by SIMULATION_MODE env)
 // ─────────────────────────────────────────────────────────────
 
 import crypto from 'crypto';
 import redisClient from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { getClientIp } from '../utils/clientInfo.js';
+import { classifyIp } from '../utils/ipClassifier.js';
 import { ipBanCounter } from '../../metrics/metrics.js';
 import { activeDefense as activeDefenseConfig } from '../config/index.js';
 
@@ -44,13 +46,25 @@ const INTERNAL_CIDRS = [
   /^::ffff:172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
 ];
 
+// Simulation IP ranges — only active when SIMULATION_MODE=true
+// Prevents simulation traffic from polluting real defense state
+const SIMULATION_MODE = (process.env.SIMULATION_MODE || '').toLowerCase() === 'true';
+const SIMULATION_CIDRS = [
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+];
+
 /**
- * Check if an IP is in the safe allowlist (localhost or Docker internal).
+ * Check if an IP is in the safe allowlist.
+ * Includes localhost, Docker internals, and (in simulation mode) test IPs.
  */
 const isAllowlisted = (ip) => {
   if (!ip) return false;
   if (ALLOWLIST.has(ip)) return true;
-  return INTERNAL_CIDRS.some((cidr) => cidr.test(ip));
+  if (INTERNAL_CIDRS.some((cidr) => cidr.test(ip))) return true;
+  // In simulation mode, skip strikes/bans for test IPs
+  if (SIMULATION_MODE && SIMULATION_CIDRS.some((cidr) => cidr.test(ip))) return true;
+  return false;
 };
 
 // ─────────────────────────────────────────────
@@ -61,11 +75,12 @@ const isAllowlisted = (ip) => {
  * Uses Redis INCR + EXPIRE for sliding-window decay.
  * When strikes exceed threshold → triggers progressive ban.
  *
- * @param {string} ip       - Client IP address
- * @param {string} severity - Event severity (LOW, MEDIUM, HIGH, CRITICAL)
- * @param {string} reason   - Human-readable reason for the strike
+ * @param {string} ip                  - Client IP address
+ * @param {string} severity            - Event severity (LOW, MEDIUM, HIGH, CRITICAL)
+ * @param {string} reason              - Human-readable reason for the strike
+ * @param {string} [triggeringEventId] - event_id of the event that caused this strike (for correlation)
  */
-export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_event') => {
+export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_event', triggeringEventId = null) => {
   try {
     if (!activeDefenseConfig.enabled) return; // Toggle OFF → no behavioral memory
     if (!ip || isAllowlisted(ip)) return;
@@ -82,11 +97,11 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
     try {
       const event = {
         event_id: crypto.randomUUID(),
-        correlation_id: crypto.randomUUID(),
+        correlation_id: triggeringEventId || crypto.randomUUID(),
         event_type: "DEFENSE",
         action: "STRIKE_RECORDED",
         source_ip: ip,
-        ip_type: ip.startsWith('192.168.') || ip.startsWith('10.') ? "SIMULATED" : "REAL",
+        ip_type: classifyIp(ip),
         user_agent: "active-defender",
         agent_type: "SYSTEM",
         target_type: "SYSTEM",
@@ -101,6 +116,7 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
       
       await redisClient.xadd(
         'security_events',
+        'MAXLEN', '~', '10000',
         '*',
         'data',
         JSON.stringify(event)
@@ -173,7 +189,7 @@ const banIp = async (ip, severity, reason) => {
         event_type: "DEFENSE",
         action: "IP_BANNED",
         source_ip: ip,
-        ip_type: ip.startsWith('192.168.') || ip.startsWith('10.') ? "SIMULATED" : "REAL",
+        ip_type: classifyIp(ip),
         user_agent: "active-defender",
         agent_type: "SYSTEM",
         target_type: "SYSTEM",
@@ -189,6 +205,7 @@ const banIp = async (ip, severity, reason) => {
 
       await redisClient.xadd(
         'security_events',
+        'MAXLEN', '~', '10000',
         '*',
         'data',
         JSON.stringify(event)
@@ -234,7 +251,14 @@ export const activeDefenseMiddleware = async (req, res, next) => {
     const banData = await redisClient.get(banKey);
 
     if (banData) {
-      const ban = JSON.parse(banData);
+      let ban;
+      try {
+        ban = JSON.parse(banData);
+      } catch (parseErr) {
+        logger.error('BAN_DATA_PARSE_FAILED', { ip, error: parseErr.message });
+        return next(); // fail-open on corrupted ban data
+      }
+
       logger.warn('BLOCKED_BANNED_IP', {
         ip,
         reason: ban.reason,
@@ -246,7 +270,7 @@ export const activeDefenseMiddleware = async (req, res, next) => {
         const correlation_id = req.headers['x-correlation-id'] || crypto.randomUUID();
         const timestamp = new Date().toISOString();
         const mode = activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER";
-        const ip_type = ip.startsWith('192.168.') || ip.startsWith('10.') ? "SIMULATED" : "REAL";
+        const ip_type = classifyIp(ip, req.headers['user-agent']);
         const user_agent = req.headers['user-agent'] || "active-defender";
 
         // 1. Emit DEFENSE Event
@@ -268,7 +292,7 @@ export const activeDefenseMiddleware = async (req, res, next) => {
           timestamp,
           mode
         };
-        await redisClient.xadd('security_events', '*', 'data', JSON.stringify(defenseEvent));
+        await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(defenseEvent));
 
         // 2. Emit ATTACK Event
         const attackEvent = {
@@ -292,7 +316,7 @@ export const activeDefenseMiddleware = async (req, res, next) => {
             reason: ban.reason
           }
         };
-        await redisClient.xadd('security_events', '*', 'data', JSON.stringify(attackEvent));
+        await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(attackEvent));
         
       } catch (err) {
         logger.error('Failed to pipe events to Redis stream', { error: err.message });

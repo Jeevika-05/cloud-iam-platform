@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import winston from 'winston';
 import { streamConsumerLag } from '../src/metrics/metrics.js';
 import { RiskEngine } from './riskEngine.js';
+import { redis as redisConfig } from '../src/shared/config/index.js';
 
 const prisma = new PrismaClient();
 const logger = winston.createLogger({
@@ -11,7 +12,8 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-const redisClient = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+// Use centralized config to prevent silent divergence between API and worker Redis
+const redisClient = new Redis(redisConfig.url);
 redisClient.on('error', (err) => logger.error('Redis Worker Error:', err.message));
 
 const riskEngine = new RiskEngine(redisClient);
@@ -68,20 +70,49 @@ async function initializeRedis() {
 }
 
 // ─────────────────────────────────────────────
-// DB WRITE  (sole writer — no duplicate inserts)
+// UUID VALIDATION
+// ─────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (val) => typeof val === 'string' && UUID_RE.test(val);
+
+// ─────────────────────────────────────────────
+// DB WRITE (idempotent — skips duplicates via event_id check)
 // ─────────────────────────────────────────────
 async function saveToPostgres(eventData) {
+  // Idempotency: skip if this event_id was already persisted
+  // (handles replay from PEL reclaim / consumer group restart)
+  if (eventData.event_id) {
+    const existing = await prisma.auditLog.findFirst({
+      where: { metadata: { path: ['event_id'], equals: eventData.event_id } },
+      select: { id: true },
+    });
+    if (existing) {
+      logger.debug('EVENT_DUPLICATE_SKIPPED', { event_id: eventData.event_id });
+      return;
+    }
+  }
+
+  // Normalize user_id: only write to FK column if it's a valid UUID
+  const userId = isValidUUID(eventData.user_id) ? eventData.user_id : undefined;
+
   await prisma.auditLog.create({
     data: {
-      userId:
-        eventData.user_id && eventData.user_id !== 'SYSTEM'
-          ? eventData.user_id
-          : undefined,
+      userId,
       action:    eventData.action     || 'UNKNOWN',
       status:    eventData.result     || 'SUCCESS',
       ip:        eventData.source_ip  || 'unknown',
       userAgent: eventData.user_agent || 'unknown',
-      metadata:  eventData,
+      metadata: {
+        ...(eventData.metadata || eventData),
+        // Preserve original user_id and email in metadata for Neo4j
+        user_id:    eventData.user_id    ?? null,
+        user_email: eventData.user_email ?? null,
+        session_id: eventData.session_id ?? null,
+        risk_score: eventData.risk_score ?? null,
+        risk_level: eventData.risk_level ?? null,
+        risk_error: eventData.risk_error ?? null,
+        sequence:   eventData.sequence   ?? [],
+      },
     },
   });
 }
@@ -90,7 +121,8 @@ async function saveToPostgres(eventData) {
 // NEO4J STUB (log-scraping compatibility preserved)
 // ─────────────────────────────────────────────
 function saveToNeo4j(eventData) {
-  logger.info('GRAPH_EVENT', eventData);
+  // Reduced from logger.info to debug to prevent log volume explosion
+  logger.debug('GRAPH_EVENT', { event_id: eventData.event_id, action: eventData.action });
 }
 
 // ─────────────────────────────────────────────
@@ -142,14 +174,30 @@ async function processMessage(messageId, keyValues) {
     return true; // ACK — unparseable messages must not loop forever
   }
 
+  // ─────────────────────────────────────────────
+  // EXPLICIT RISK ENRICHMENT
+  // Returns riskOutput object instead of relying on in-place mutation.
+  // On failure, marks event with UNKNOWN risk level (distinguishable from LOW).
+  // ─────────────────────────────────────────────
+  try {
+    const riskResult = await riskEngine.processEvent(eventData);
+    if (riskResult) {
+      eventData.risk_score = riskResult.risk_score;
+      eventData.risk_level = riskResult.risk_level;
+      eventData.sequence   = riskResult.sequence;
+    }
+    // riskResult === null means event was skipped (DEFENSE, no IP, etc.) — leave defaults
+  } catch (err) {
+    logger.error('RISK_ENGINE_ERROR', { error: err.message, event_id: eventData?.event_id });
+    // Mark UNKNOWN so downstream consumers know risk was NOT computed (distinct from LOW)
+    eventData.risk_score = null;
+    eventData.risk_level = 'UNKNOWN';
+    eventData.risk_error = err.message;
+  }
+
   // Throws on DB error → caller skips ACK → PEL retains message for reclaim
   await saveToPostgres(eventData);
   saveToNeo4j(eventData);
-
-  // Non-blocking Risk Evaluation
-  riskEngine.processEvent(eventData).catch(err => {
-    logger.error('RISK_ENGINE_ERROR', { error: err.message, event_id: eventData?.event_id });
-  });
 
   return true;
 }

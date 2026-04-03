@@ -2,6 +2,7 @@ import logger from '../../shared/utils/logger.js';
 import crypto from 'crypto';
 import { recordStrike } from '../../shared/middleware/activeDefender.js';
 import redisClient from '../../shared/config/redis.js';
+import { classifyIp } from '../../shared/utils/ipClassifier.js';
 import { securityEventSeverityCounter } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
@@ -21,7 +22,7 @@ const inferSeverity = (status) => {
 
 export const logSecurityEvent = async (payload) => {
   // Normalize payload because activeDefender sends the raw flat object while auth.service sends { action, status, ip, metadata }
-  const { userId, action, status, ip, userAgent, metadata, event_type, source_ip, ...restOfPayload } = payload;
+  const { userId, action, status, ip, userAgent, metadata, event_type, source_ip, sessionId, ...restOfPayload } = payload;
   const resolvedIp = ip || source_ip;
   const resolvedStatus = status || payload.result || 'SUCCESS';
   const resolvedEventType = event_type || metadata?.event_type || 'SECURITY';
@@ -30,28 +31,32 @@ export const logSecurityEvent = async (payload) => {
   const mergedMeta = { ...metaJson, ...restOfPayload, event_type: resolvedEventType };
 
   // 🛡️ ACTIVE DEFENSE: Record strike BEFORE database operations
+  // Pass event_id from metadata for attack→defense correlation
   const severity = inferSeverity(resolvedStatus);
+  const triggeringEventId = mergedMeta?.event_id || null;
   if (severity && resolvedIp && resolvedEventType !== "DEFENSE") {
     // Only record strikes for non-defense events to avert recursion
-    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`).catch((err) => {
+    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`, triggeringEventId).catch((err) => {
       logger.error('RECORD_STRIKE_FAILED', { error: err.message, ip: resolvedIp });
     });
   }
 
-  const isSimulated = userAgent?.includes('attack-engine') || resolvedIp?.startsWith('192.168.');
+  // Use centralized IP classifier (consistent with activeDefender and neo4j_ingest)
+  const ipType = classifyIp(resolvedIp, userAgent);
   
   // 🕸️ GRAPH_EVENT: Emit normalized event for Neo4j IMMEDIATELY
   const baseGraphEvent = {
       event_id: crypto.randomUUID(),
-      correlation_id: mergedMeta?.correlation_id || crypto.randomUUID(),
+      correlation_id: mergedMeta?.correlation_id || payload.correlationId || crypto.randomUUID(),
       user_id: userId || 'SYSTEM',
       user_email: mergedMeta?.user_email || null,
+      session_id: sessionId || mergedMeta?.jti || null,
       event_type: resolvedEventType,
       action,
       source_ip: resolvedIp || 'unknown',
-      ip_type: isSimulated ? "SIMULATED" : "REAL",
+      ip_type: ipType,
       user_agent: userAgent || 'unknown',
-      agent_type: isSimulated ? "SIMULATED" : "REAL",
+      agent_type: ipType === 'SIMULATED' ? "SIMULATED" : "REAL",
       target_type: "API",
       target_endpoint: mergedMeta?.path || "internal",
       result: resolvedStatus,

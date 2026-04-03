@@ -53,7 +53,7 @@ export const register = async ({ name, email, password, ipAddress, userAgent }) 
 // ─────────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────────
-export const login = async ({ email, password, ipAddress, userAgent }) => {
+export const login = async ({ email, password, ipAddress, userAgent, correlationId }) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   const user = await prisma.user.findUnique({
@@ -64,7 +64,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
   if (!user) {
     await dummyVerify(password);
     logger.warn('LOGIN_FAILED', { email: normalizedEmail, ip: ipAddress });
-    await logSecurityEvent({ action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress });
+    await logSecurityEvent({ action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress, correlationId });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 
@@ -106,7 +106,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
     });
 
     logger.warn('LOGIN_FAILED', { userId: user.id, ip: ipAddress });
-    await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress });
+    await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress, correlationId });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
   }
 
@@ -127,7 +127,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
 
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: false });
 
-  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'SUCCESS', ip: ipAddress, userAgent });
+  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'SUCCESS', ip: ipAddress, userAgent, correlationId, sessionId: tokens.jti });
 
   return { user: safeUser, ...tokens };
 };
@@ -136,7 +136,7 @@ export const login = async ({ email, password, ipAddress, userAgent }) => {
 // GOOGLE OAUTH LOGIN
 // 🔐 SECURITY FIX: No silent account linking
 // ─────────────────────────────────────────────
-export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userAgent }) => {
+export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userAgent, correlationId }) => {
   const normalizedEmail = email.toLowerCase().trim();
   let user = await prisma.user.findUnique({ where: { googleId } });
 
@@ -194,7 +194,7 @@ export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userA
   // Issue standard tokens
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: false });
   
-  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'SUCCESS_GOOGLE', ip: ipAddress, userAgent });
+  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'SUCCESS_GOOGLE', ip: ipAddress, userAgent, correlationId, sessionId: tokens.jti });
 
   return { user: safeUser, ...tokens };
 };
@@ -202,7 +202,7 @@ export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userA
 // ─────────────────────────────────────────────
 // VALIDATE MFA LOGIN
 // ─────────────────────────────────────────────
-export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent }) => {
+export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent, correlationId }) => {
   const decoded = verifyTempToken(tempToken);
 
   const user = await prisma.user.findUnique({ where: { id: decoded.sub } });
@@ -255,14 +255,14 @@ export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent }
   });
 
   if (!verified) {
-    await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'MFA_FAILED', ip: ipAddress, userAgent });
+    await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'MFA_FAILED', ip: ipAddress, userAgent, correlationId });
     throw new AppError('Invalid MFA code', 400, 'INVALID_MFA_CODE');
   }
 
-  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'MFA_SUCCESS', ip: ipAddress, userAgent });
-
   const { password: _, ...safeUser } = user;
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: true });
+  
+  await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'MFA_SUCCESS', ip: ipAddress, userAgent, correlationId, sessionId: tokens.jti });
   
   return { user: safeUser, ...tokens };
 };
@@ -270,7 +270,7 @@ export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent }
 // ─────────────────────────────────────────────
 // REFRESH TOKEN (ROTATION)
 // ─────────────────────────────────────────────
-export const refresh = async (token, { ipAddress, userAgent }) => {
+export const refresh = async (token, { ipAddress, userAgent, correlationId }) => {
   if (!token) {
     throw new AppError('Refresh token missing', 401, 'REFRESH_TOKEN_MISSING');
   }
@@ -323,6 +323,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
       status: 'FAILURE',
       ip: ipAddress,
       userAgent,
+      correlationId,
       metadata: { jti: decoded.jti, allSessionsRevoked: true },
     });
 
@@ -379,7 +380,9 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
       action: 'SESSION_REVOKED',
       status: 'SUSPICIOUS_SESSION_DETECTED',
       ip: ipAddress,
-      userAgent
+      userAgent,
+      correlationId,
+      sessionId: decoded.jti
     });
     
     logger.warn('SUSPICIOUS_SESSION_REVOKED', { userId: session.userId, ipAddress, userAgent });
@@ -419,6 +422,8 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
     status: 'SUCCESS',
     ip: ipAddress,
     userAgent,
+    correlationId,
+    sessionId: tokens.jti,
     metadata: { oldJti: decoded.jti },
   });
 
@@ -430,7 +435,7 @@ export const refresh = async (token, { ipAddress, userAgent }) => {
 // ─────────────────────────────────────────────
 // LOGOUT (CURRENT SESSION)
 // ─────────────────────────────────────────────
-export const logout = async (token) => {
+export const logout = async (token, { correlationId } = {}) => {
   if (!token) {
     throw new AppError('Token missing', 401, 'LOGOUT_FAILED');
   }
@@ -460,6 +465,8 @@ export const logout = async (token) => {
     status: 'SUCCESS',
     ip: null,
     userAgent: null,
+    correlationId,
+    sessionId: decoded.jti,
     metadata: { jti: decoded.jti },
   });
 
@@ -528,7 +535,7 @@ export const getCurrentSession = async (jti) => {
 // ─────────────────────────────────────────────
 // REVOKE SINGLE SESSION
 // ─────────────────────────────────────────────
-export const revokeSession = async (sessionId, userId) => {
+export const revokeSession = async (sessionId, userId, { correlationId } = {}) => {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
   });
@@ -552,6 +559,8 @@ export const revokeSession = async (sessionId, userId) => {
     status: 'SUCCESS',
     ip: null,
     userAgent: null,
+    correlationId,
+    sessionId,
     metadata: { revokedSessionId: sessionId },
   });
 
@@ -561,7 +570,7 @@ export const revokeSession = async (sessionId, userId) => {
 // ─────────────────────────────────────────────
 // REVOKE ALL SESSIONS
 // ─────────────────────────────────────────────
-export const revokeAllSessions = async (userId) => {
+export const revokeAllSessions = async (userId, { correlationId } = {}) => {
   const result = await prisma.session.updateMany({
     where: { userId, revoked: false },
     data: { revoked: true }
@@ -573,6 +582,7 @@ export const revokeAllSessions = async (userId) => {
     status: 'SUCCESS',
     ip: null,
     userAgent: null,
+    correlationId,
     metadata: { sessionsRevoked: result.count },
   });
 
@@ -625,5 +635,5 @@ const issueTokens = async (user, { ipAddress, userAgent, mfaVerified = false } =
     },
   });
 
-  return { accessToken, refreshToken };
+  return { accessToken, refreshToken, jti };
 };
