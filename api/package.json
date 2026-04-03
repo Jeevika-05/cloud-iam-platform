@@ -13,7 +13,8 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "lint": "echo \"Add ESLint later\"",
-    "test": "echo \"Add tests later\""
+    "test": "echo \"Add tests later\"",
+    "ingest:attack": "node scripts/ingestAttackEvents.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

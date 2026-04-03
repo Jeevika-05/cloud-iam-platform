@@ -117,8 +117,8 @@ export class RiskEngine {
       let offset = 0;
       for (const entity of entities) {
         const hincrbyCount = executeResults[offset][1]; 
-        const sequenceResult = executeResults[offset + 4][1] || [];
-        const stateResultStr = executeResults[offset + 5][1];
+        const sequenceResult = executeResults[offset + 5][1] || [];
+        const stateResultStr = executeResults[offset + 6][1];
         
         let previousScore = 0;
         let lastTime = eventTimeMs;
@@ -184,7 +184,7 @@ export class RiskEngine {
            finalSequence = seq;
            finalDelta = delta;
         }
-        offset += 6;
+        offset += 7;
       }
 
       const score = maxTotalScore;
@@ -201,8 +201,13 @@ export class RiskEngine {
         riskLevel = 'MEDIUM';
       }
 
-      // Format sequence for output (oldest to newest)
-      const formattedSequence = finalSequence.slice().reverse();
+      let formattedSequence = [];
+
+      if (Array.isArray(finalSequence)) {
+        formattedSequence = finalSequence.slice().reverse();
+      } else {
+        logger.warn("Invalid finalSequence type", { finalSequence });
+      } 
 
       const riskOutput = {
         entity: entities,

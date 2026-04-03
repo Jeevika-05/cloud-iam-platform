@@ -148,27 +148,52 @@ async function sendToDLQ(messageId, rawData, reason) {
   }
 }
 
-// ADDED
+// ─────────────────────────────────────────────────────────────────────────────
+// enrichSequenceAndParent
+// ─────────────────────────────────────────────────────────────────────────────
+// IMPORTANT — key alignment with audit.service.js
+// ─────────────────────────────────────────────────────────────────────────────
+// audit.service.js writes sequence state under:
+//   seq:corr:<correlationId>   (getNextSequenceIndex)
+//   seq:prev:<correlationId>   (getPreviousEventId)
+//
+// The old worker used:
+//   seq:correlation:<id>       ← WRONG — a completely different Redis namespace
+//   parent:correlation:<id>    ← WRONG — never read by audit.service.js
+//
+// Fix: use the SAME key prefixes so that ingested ATTACK events (which are
+// pushed BEFORE the worker runs) already have seq=1 / parent=null stored
+// under seq:corr: and seq:prev:, and the subsequent DEFENSE events correctly
+// read seq=2 and parent=<ATTACK.event_id> from those same keys.
+//
+// The Lua script is kept for atomicity — INCR + GETSET in one round-trip with
+// no race window, identical semantics to the two separate calls in audit.service.
+// ─────────────────────────────────────────────────────────────────────────────
 async function enrichSequenceAndParent(correlationId, eventId) {
-  const seqKey = `seq:correlation:${correlationId}`;
-  const parentKey = `parent:correlation:${correlationId}`;
-  
+  // Must match audit.service.js: `seq:corr:` and `seq:prev:`
+  const seqKey    = `seq:corr:${correlationId}`;
+  const parentKey = `seq:prev:${correlationId}`;
+
+  // Atomic: INCR seq, GETSET parent — one round-trip, no race window.
+  // TTL matches audit.service.js (3600 s / 1 h correlation window).
   const script = `
-    local seq_key = KEYS[1]
+    local seq_key    = KEYS[1]
     local parent_key = KEYS[2]
-    local event_id = ARGV[1]
-    
+    local event_id   = ARGV[1]
+
     local index = redis.call('INCR', seq_key)
     if index == 1 then
-      redis.call('EXPIRE', seq_key, 86400)
+      redis.call('EXPIRE', seq_key, 3600)
     end
-    
-    local parent_id = redis.call('GET', parent_key)
-    redis.call('SET', parent_key, event_id, 'EX', 86400)
-    
-    return {index, parent_id}
+
+    local parent_id = redis.call('GETSET', parent_key, event_id)
+    if not parent_id then
+      redis.call('EXPIRE', parent_key, 3600)
+    end
+
+    return {index, parent_id or false}
   `;
-  
+
   const [index, parentId] = await redisClient.eval(script, 2, seqKey, parentKey, eventId);
   return [index, parentId || null];
 }
@@ -199,14 +224,30 @@ async function processMessage(messageId, keyValues) {
     return true; // ACK — unparseable messages must not loop forever
   }
 
-  // MODIFIED
+  // ── Sequence + parent enrichment ──────────────────────────────────────────
+  // All events — ATTACK (ingested by ingestAttackEvents.js) and DEFENSE
+  // (emitted by activeDefender/audit.service.js) — go through the same
+  // enrichSequenceAndParent so they share one monotonic counter per
+  // correlation_id, forming the chain:
+  //   ATTACK  → seq=1, parent=null
+  //   DEFENSE → seq=2, parent=<ATTACK.event_id>
+  //   DEFENSE → seq=3, parent=<DEFENSE.event_id>  …
   if (eventData.correlation_id && eventData.event_id) {
-    const [index, parentId] = await enrichSequenceAndParent(eventData.correlation_id, eventData.event_id);
+    const [index, parentId] = await enrichSequenceAndParent(
+      eventData.correlation_id,
+      eventData.event_id,
+    );
     eventData.event_sequence_index = index;
-    eventData.parent_event_id = parentId;
+    eventData.parent_event_id      = parentId;
   } else {
+    // Events without correlation_id cannot be chained — log and isolate.
+    logger.warn('EVENT_MISSING_CORRELATION_ID', {
+      messageId,
+      event_type: eventData.event_type,
+      action:     eventData.action,
+    });
     eventData.event_sequence_index = 1;
-    eventData.parent_event_id = null;
+    eventData.parent_event_id      = null;
   }
 
   // ─────────────────────────────────────────────

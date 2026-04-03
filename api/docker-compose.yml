@@ -3,7 +3,6 @@ services:
     image: redis:7-alpine
     container_name: auth_redis
     restart: unless-stopped
-    # 🔒 SEC-04: No host port — Redis is only accessible within the Docker network
     networks:
       - backend
     healthcheck:
@@ -24,7 +23,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-authdb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # 🔒 SEC-02: No host port — PostgreSQL is only accessible within the Docker network
     networks:
       - backend
     healthcheck:
@@ -51,13 +49,11 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
       REDIS_URL: redis://redis:6379
-      # ── JWT Multi-Key (KID rotation) ──────────
       JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-key1}
       JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
       JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
       JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
       JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
-      # Legacy fallback (used if no KID keys configured)
       JWT_PRIVATE_KEY_FILE: /app/keys/jwt_private.pem
       JWT_PUBLIC_KEY_FILE: /app/keys/jwt_public.pem
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
@@ -76,6 +72,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
   worker:
     build:
       context: .
@@ -88,6 +85,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      attack-ingest:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
@@ -131,7 +130,6 @@ services:
       TARGET_URL: http://backend:3000
       ATTACK_EMAIL: ${ATTACK_EMAIL:-attacker@test.com}
       ATTACK_PASSWORD: ${ATTACK_PASSWORD:-Attack@123}
-      # ATTACK_MODE options: all | token_race (atk01) | mfa_replay (atk02)
       ATTACK_MODE: ${ATTACK_MODE:-all}
     volumes:
       - ./reports:/reports
@@ -139,6 +137,29 @@ services:
       - backend
     restart: "no"
 
+  #  Attack ingestion (results.json → Redis)
+  attack-ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth_attack_ingest
+    command: node scripts/ingestAttackEvents.js --file /app/reports/results.json
+    depends_on:
+      redis:
+        condition: service_healthy
+      attacker:
+        condition: service_completed_successfully
+    environment:
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./reports:/app/reports
+    networks:
+      - backend
+    restart: "no"
+
+  
   ingest:
     build:
       context: .
@@ -146,8 +167,10 @@ services:
     container_name: auth_ingest
     command: node scripts/neo4j_ingest.js --api-url http://backend:3000 --attack-file /app/reports/results.json --output /app/reports/unified_events.json --token ${INTERNAL_SERVICE_TOKEN}
     depends_on:
-      attacker:
+      attack-ingest:
         condition: service_completed_successfully
+      worker:
+        condition: service_started
       backend:
         condition: service_healthy
     volumes:
@@ -178,7 +201,6 @@ services:
 
 volumes:
   postgres_data:
-  
 
 networks:
   backend:
