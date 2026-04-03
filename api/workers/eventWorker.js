@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import winston from 'winston';
+import crypto from 'crypto';
 import { streamConsumerLag } from '../src/metrics/metrics.js';
 import { RiskEngine } from './riskEngine.js';
 import { redis as redisConfig } from '../src/shared/config/index.js';
@@ -56,6 +57,17 @@ process.on('SIGINT',  () => shutdown('SIGINT'));
 // BOOTSTRAP: ensure consumer group exists
 // ─────────────────────────────────────────────
 async function initializeRedis() {
+  let retries = 10;
+  while (retries--) {
+    try {
+      await redisClient.ping();
+      break;
+    } catch (err) {
+      if (retries === 0) throw new Error('Redis readiness check failed');
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+
   try {
     // '0' = replay from beginning; MKSTREAM = create stream if absent
     await redisClient.xgroup('CREATE', STREAM_KEY, GROUP_NAME, '0', 'MKSTREAM');
@@ -164,54 +176,8 @@ async function sendToDLQ(messageId, rawData, reason) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// enrichSequenceAndParent
+// SEQUENCE AND PARENT ENRICHMENT
 // ─────────────────────────────────────────────────────────────────────────────
-// IMPORTANT — key alignment with audit.service.js
-// ─────────────────────────────────────────────────────────────────────────────
-// audit.service.js writes sequence state under:
-//   seq:corr:<correlationId>   (getNextSequenceIndex)
-//   seq:prev:<correlationId>   (getPreviousEventId)
-//
-// The old worker used:
-//   seq:correlation:<id>       ← WRONG — a completely different Redis namespace
-//   parent:correlation:<id>    ← WRONG — never read by audit.service.js
-//
-// Fix: use the SAME key prefixes so that ingested ATTACK events (which are
-// pushed BEFORE the worker runs) already have seq=1 / parent=null stored
-// under seq:corr: and seq:prev:, and the subsequent DEFENSE events correctly
-// read seq=2 and parent=<ATTACK.event_id> from those same keys.
-//
-// The Lua script is kept for atomicity — INCR + GETSET in one round-trip with
-// no race window, identical semantics to the two separate calls in audit.service.
-// ─────────────────────────────────────────────────────────────────────────────
-async function enrichSequenceAndParent(correlationId, eventId) {
-  // Must match audit.service.js: `seq:corr:` and `seq:prev:`
-  const seqKey    = `seq:corr:${correlationId}`;
-  const parentKey = `seq:prev:${correlationId}`;
-
-  // Atomic: INCR seq, GETSET parent — one round-trip, no race window.
-  // TTL matches audit.service.js (3600 s / 1 h correlation window).
-  const script = `
-    local seq_key    = KEYS[1]
-    local parent_key = KEYS[2]
-    local event_id   = ARGV[1]
-
-    local index = redis.call('INCR', seq_key)
-    if index == 1 then
-      redis.call('EXPIRE', seq_key, 3600)
-    end
-
-    local parent_id = redis.call('GETSET', parent_key, event_id)
-    if not parent_id then
-      redis.call('EXPIRE', parent_key, 3600)
-    end
-
-    return {index, parent_id or false}
-  `;
-
-  const [index, parentId] = await redisClient.eval(script, 2, seqKey, parentKey, eventId);
-  return [index, parentId || null];
-}
 
 // ─────────────────────────────────────────────
 // PROCESS ONE MESSAGE
@@ -239,23 +205,34 @@ async function processMessage(messageId, keyValues) {
     return true; // ACK — unparseable messages must not loop forever
   }
 
+  eventData.event_id = eventData.event_id || crypto.randomUUID();
+  const processedKey = `processed:${eventData.event_id}`;
+  const alreadyProcessed = await redisClient.exists(processedKey);
+  if (alreadyProcessed) {
+    logger.warn(`Skipping duplicate event: ${eventData.event_id}`);
+    return true;
+  }
+
   // ── Sequence + parent enrichment ──────────────────────────────────────────
-  // All events — ATTACK (ingested by ingestAttackEvents.js) and DEFENSE
-  // (emitted by activeDefender/audit.service.js) — go through the same
-  // enrichSequenceAndParent so they share one monotonic counter per
-  // correlation_id, forming the chain:
-  //   ATTACK  → seq=1, parent=null
-  //   DEFENSE → seq=2, parent=<ATTACK.event_id>
-  //   DEFENSE → seq=3, parent=<DEFENSE.event_id>  …
-  if (eventData.correlation_id && eventData.event_id) {
-    const [index, parentId] = await enrichSequenceAndParent(
-      eventData.correlation_id,
-      eventData.event_id,
-    );
-    eventData.event_sequence_index = index;
-    eventData.parent_event_id      = parentId;
+  const correlationId = eventData.correlation_id || eventData.event_group_id;
+  if (correlationId) {
+    if (eventData.event_type === 'DEFENSE') {
+      const exists = await redisClient.exists(`seq:${correlationId}`);
+      if (!exists) {
+        throw new Error("ATTACK not yet processed for this correlation_id");
+      }
+    }
+    
+    const seq = await redisClient.incr(`seq:${correlationId}`);
+    eventData.event_sequence_index = seq;
+    
+    const prevKey = `prev:${correlationId}`;
+    const previousEventId = await redisClient.getset(prevKey, eventData.event_id);
+    eventData.parent_event_id = previousEventId || null;
+    
+    await redisClient.expire(`seq:${correlationId}`, 3600);
+    await redisClient.expire(`prev:${correlationId}`, 3600);
   } else {
-    // Events without correlation_id cannot be chained — log and isolate.
     logger.warn('EVENT_MISSING_CORRELATION_ID', {
       messageId,
       event_type: eventData.event_type,
@@ -271,14 +248,16 @@ async function processMessage(messageId, keyValues) {
   // On failure, marks event with UNKNOWN risk level (distinguishable from LOW).
   // ─────────────────────────────────────────────
   try {
-    const riskResult = await riskEngine.processEvent(eventData);
-    if (riskResult) {
-      eventData = riskResult;
+    const riskData = await riskEngine.processEvent(eventData);
+    if (riskData) {
+      Object.assign(eventData, riskData);
     }
+    eventData.risk_score = riskData?.score ?? eventData.risk_score ?? 0;
+    eventData.risk_level = riskData?.level ?? eventData.risk_level ?? 'LOW';
   } catch (err) {
     logger.error('RISK_ENGINE_ERROR', { error: err.message, event_id: eventData?.event_id });
     // Mark UNKNOWN so downstream consumers know risk was NOT computed (distinct from LOW)
-    eventData.risk_score = null;
+    eventData.risk_score = 0;
     eventData.risk_level = 'UNKNOWN';
     eventData.risk_error = err.message;
   }
@@ -286,6 +265,8 @@ async function processMessage(messageId, keyValues) {
   // Throws on DB error → caller skips ACK → PEL retains message for reclaim
   await saveToPostgres(eventData);
   saveToNeo4j(eventData);
+
+  await redisClient.set(`processed:${eventData.event_id}`, 1, 'EX', 3600);
 
   return true;
 }

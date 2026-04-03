@@ -233,7 +233,7 @@ export class RiskEngine {
         const strikeTriggerKey = `risk:triggered:${ip}:${slot}`;
         const triggered = await this.redis.set(strikeTriggerKey, '1', 'EX', 600, 'NX');
         if (triggered === 'OK') {
-          await recordStrike(ip, 'HIGH', `risk_engine_score_${score}_delta_${Math.floor(finalDelta)}`, enrichedEvent.correlation_id || enrichedEvent.event_id);
+          await recordStrike(ip, 'HIGH', `risk_engine_score_${score}_delta_${Math.floor(finalDelta)}`, enrichedEvent);
           enrichedEvent.is_defense_triggered = true;
           enrichedEvent.defense_reason = "risk_engine_trigger";
           enrichedEvent.defense_action = "STRIKE";

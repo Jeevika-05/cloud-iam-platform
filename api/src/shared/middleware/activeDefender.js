@@ -17,7 +17,7 @@ import { getClientIp } from '../utils/clientInfo.js';
 import { classifyIp } from '../utils/ipClassifier.js';
 import { ipBanCounter } from '../../metrics/metrics.js';
 import { activeDefense as activeDefenseConfig } from '../config/index.js';
-import { getNextSequenceIndex, getPreviousEventId, resolveStage, resolveAttackCategory, calculateEventIntelligence } from '../../modules/auth/audit.service.js';
+import { resolveStage, resolveAttackCategory, calculateEventIntelligence } from '../../modules/auth/audit.service.js';
 
 // ─────────────────────────────────────────────
 // CONFIGURATION
@@ -81,7 +81,7 @@ const isAllowlisted = (ip) => {
  * @param {string} reason              - Human-readable reason for the strike
  * @param {string} [triggeringEventId] - event_id of the event that caused this strike (for correlation)
  */
-export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_event', triggeringEventId = null) => {
+export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_event', triggeringEvent = {}) => {
   try {
     if (!activeDefenseConfig.enabled) return; // Toggle OFF → no behavioral memory
     if (!ip || isAllowlisted(ip)) return;
@@ -98,20 +98,18 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
     try {
       const eventId = crypto.randomUUID();
       // STRIKE_RECORDED events link back to the triggering attack via correlation_id
-      const correlationId = triggeringEventId || crypto.randomUUID();
+      const cachedCorr = await redisClient.get(`corr:${ip}`);
+      const correlationId = triggeringEvent?.correlation_id || triggeringEvent?.event_group_id || cachedCorr;
+      if (!correlationId) {
+        throw new Error("DEFENSE event missing correlation_id");
+      }
       const timestamp = new Date().toISOString();
 
-      const [event_sequence_index, parent_event_id, intelligence] = await Promise.all([
-        getNextSequenceIndex(correlationId),
-        getPreviousEventId(correlationId, eventId),
-        calculateEventIntelligence(correlationId, timestamp, ip, "strike-engine")
-      ]);
+      const intelligence = await calculateEventIntelligence(correlationId, timestamp, ip, "strike-engine");
 
       const event = {
         event_id: eventId,
         correlation_id: correlationId,
-        event_sequence_index,
-        parent_event_id,
         event_type: "DEFENSE",
         action: "STRIKE_RECORDED",
         source_ip: ip,
@@ -143,7 +141,7 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
     }
 
     if (strikes >= STRIKE_THRESHOLD) {
-      await banIp(ip, severity, reason);
+      await banIp(ip, severity, reason, triggeringEvent);
       // Reset strikes after ban is applied
       await redisClient.del(strikeKey);
     }
@@ -162,7 +160,7 @@ export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_e
  * 2nd ban → 1 hour
  * 3rd+ ban → 24 hours
  */
-const banIp = async (ip, severity, reason) => {
+const banIp = async (ip, severity, reason, triggeringEvent = {}) => {
   try {
     const banMetaKey = BAN_META_KEY(ip);
     const banKey = BAN_KEY(ip);
@@ -201,21 +199,18 @@ const banIp = async (ip, severity, reason) => {
     // Unified DEFENSE event — queued to Redis stream for async processing
     try {
       const eventId = crypto.randomUUID();
-      // IP_BANNED starts its own correlation chain (ban escalation is independent)
-      const correlationId = crypto.randomUUID();
+      const cachedCorr = await redisClient.get(`corr:${ip}`);
+      const correlationId = triggeringEvent?.correlation_id || triggeringEvent?.event_group_id || cachedCorr;
+      if (!correlationId) {
+        throw new Error("DEFENSE event missing correlation_id");
+      }
       const timestamp = new Date().toISOString();
 
-      const [event_sequence_index, parent_event_id, intelligence] = await Promise.all([
-        getNextSequenceIndex(correlationId),
-        getPreviousEventId(correlationId, eventId),
-        calculateEventIntelligence(correlationId, timestamp, ip, "ban-engine")
-      ]);
+      const intelligence = await calculateEventIntelligence(correlationId, timestamp, ip, "ban-engine");
 
       const event = {
         event_id: eventId,
         correlation_id: correlationId,
-        event_sequence_index,
-        parent_event_id,
         event_type: "DEFENSE",
         action: "IP_BANNED",
         source_ip: ip,
@@ -300,6 +295,8 @@ export const activeDefenseMiddleware = async (req, res, next) => {
 
       try {
         const correlation_id = req.headers['x-correlation-id'] || crypto.randomUUID();
+        await redisClient.set(`corr:${ip}`, correlation_id, 'EX', 3600);
+        
         const timestamp = new Date().toISOString();
         const mode = activeDefenseConfig.enabled ? "AFTER_ACTIVE_DEFENDER" : "BEFORE_ACTIVE_DEFENDER";
         const ip_type = classifyIp(ip, req.headers['user-agent']);
@@ -310,15 +307,12 @@ export const activeDefenseMiddleware = async (req, res, next) => {
         const defenseEventId = crypto.randomUUID();
 
         // 1. Resolve and emit ATTACK Event FIRST
-        const atkSeq = await getNextSequenceIndex(correlation_id);
         const atkEndpoint = req.originalUrl;
         const atkIntel = await calculateEventIntelligence(correlation_id, timestamp, ip, atkEndpoint);
 
         const attackEvent = {
           event_id: attackEventId,
           correlation_id,
-          event_sequence_index: atkSeq,
-          parent_event_id: null,
           event_type: "ATTACK",
           action: "BLOCKED_REQUEST",
           source_ip: ip,
@@ -342,15 +336,12 @@ export const activeDefenseMiddleware = async (req, res, next) => {
         await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(attackEvent));
 
         // 2. Resolve and emit DEFENSE Event SECOND
-        const defSeq = await getNextSequenceIndex(correlation_id);
         const defEndpoint = req.originalUrl || "ban-engine";
         const defIntel = (atkEndpoint === defEndpoint) ? atkIntel : await calculateEventIntelligence(correlation_id, timestamp, ip, defEndpoint);
 
         const defenseEvent = {
           event_id: defenseEventId,
           correlation_id,
-          event_sequence_index: defSeq,
-          parent_event_id: attackEventId,
           event_type: "DEFENSE",
           action: "BLOCKED_BANNED_IP",
           source_ip: ip,

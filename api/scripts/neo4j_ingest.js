@@ -23,6 +23,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 // ─────────────────────────────────────────────
 // CLI ARGUMENT PARSING
@@ -108,35 +111,63 @@ function loadAttackEvents(filePath) {
 }
 
 // ─────────────────────────────────────────────
-// LOAD DEFENSE EVENTS (from API)
+// LOAD DEFENSE EVENTS (from DB)
 // ─────────────────────────────────────────────
 async function loadDefenseEvents(apiUrl, token, since) {
-  const url = new URL('/api/v1/audit/events/defense', apiUrl);
-  if (since) url.searchParams.set('since', since);
-  url.searchParams.set('limit', '5000');
-
-  console.log(`[MERGE] Fetching defense events from: ${url.toString()}`);
+  console.log(`[MERGE] Fetching enriched defense events directly from PostgreSQL DB`);
 
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) headers['x-internal-token'] = token;
-
-    const response = await fetch(url.toString(), { headers });
-
-    if (!response.ok) {
-      const body = await response.text();
-      console.warn(`[WARN] Defense API returned ${response.status}: ${body}`);
-      console.warn('[WARN] Continuing with ATTACK events only');
-      return [];
+    const whereClause = {
+      metadata: { path: ['event_type'], equals: 'DEFENSE' }
+    };
+    
+    if (since) {
+       // Assuming we can filter by metadata timestamp, but Prisma JSON filtering is limited.
+       // We'll fetch all defense events here for simplicity, or we could rely on Prisma features.
+       // For a robust pipeline, fetching all matching events is safe if limits apply, or we filter in memory.
     }
 
-    const data = await response.json();
-    const events = data.events || [];
+    const dbEvents = await prisma.$queryRaw`
+      SELECT * FROM "AuditLog"
+      WHERE metadata->>'event_type' = 'DEFENSE'
+      ORDER BY metadata->>'correlation_id' ASC, CAST(metadata->>'event_sequence_index' AS INTEGER) ASC
+      LIMIT 5000
+    `;
 
-    console.log(`[MERGE] Found ${events.length} DEFENSE events`);
+    const events = dbEvents.map(e => {
+      const meta = e.metadata || {};
+      return {
+        event_id: meta.event_id,
+        correlation_id: meta.correlation_id,
+        event_sequence_index: meta.event_sequence_index,
+        parent_event_id: meta.parent_event_id,
+        user_id: e.userId,
+        user_email: meta.user_email,
+        session_id: meta.session_id,
+        event_type: 'DEFENSE',
+        action: meta.action || e.action,
+        source_ip: meta.source_ip || e.ip,
+        ip_type: meta.ip_type,
+        user_agent: meta.user_agent || e.userAgent,
+        agent_type: meta.agent_type,
+        target_type: meta.target_type,
+        target_endpoint: meta.target_endpoint,
+        result: meta.result || e.status,
+        severity: meta.severity,
+        risk_score: meta.risk_score,
+        risk_level: meta.risk_level,
+        timestamp: meta.timestamp,
+        reason: meta.reason,
+        strike_count: meta.strike_count,
+        ban_duration: meta.ban_duration,
+        mode: meta.mode
+      };
+    });
+
+    console.log(`[MERGE] Found ${events.length} DEFENSE events from DB`);
     return events;
   } catch (err) {
-    console.warn(`[WARN] Cannot reach defense API: ${err.message}`);
+    console.warn(`[WARN] Cannot reach defense DB: ${err.message}`);
     console.warn('[WARN] Continuing with ATTACK events only');
     return [];
   }
@@ -242,6 +273,8 @@ function enrichEvents(events) {
     return {
       event_id: e.event_id,
       correlation_id: e.correlationId || e.event_id, 
+      event_sequence_index: e.event_sequence_index,
+      parent_event_id: e.parent_event_id,
       event_group_id: e.eventGroupId,
       user_id: e.finalUserId,
       user_email: e.finalUserEmail, 
@@ -298,13 +331,15 @@ function deduplicateEvents(events) {
 }
 
 // ─────────────────────────────────────────────
-// SORT BY TIMESTAMP
+// SORT BY CORRELATION AND SEQUENCE
 // ─────────────────────────────────────────────
-function sortByTimestamp(events) {
+function sortEvents(events) {
   return events.sort((a, b) => {
-    const ta = new Date(a.timestamp).getTime();
-    const tb = new Date(b.timestamp).getTime();
-    return ta - tb;
+    const cA = a.correlation_id || a.event_id;
+    const cB = b.correlation_id || b.event_id;
+    if (cA < cB) return -1;
+    if (cA > cB) return 1;
+    return (a.event_sequence_index || 0) - (b.event_sequence_index || 0);
   });
 }
 
@@ -373,31 +408,14 @@ async function main() {
   // 4. Deduplicate
   const unique = deduplicateEvents(merged);
 
-  // 5. Sort by timestamp (Required for causality linking)
-  const sorted = sortByTimestamp(unique);
+  // 5. Sort by correlation and sequence chain
+  const sorted = sortEvents(unique);
 
   // 6. Enrich Schema and Add Graph Correlation
   const enriched = enrichEvents(sorted);
 
   // 6b. Apply Strict Sequence Tracking (Per Group)
-  // MODIFIED
-  const correlationIndexMap = new Map();
-  const correlationParentMap = new Map();
-
-  enriched.forEach((e) => {
-    const groupId = e.correlation_id || e.event_group_id;
-
-    const currentIndex = correlationIndexMap.get(groupId) || 0;
-    const nextIndex = currentIndex + 1;
-    
-    const parentId = correlationParentMap.get(groupId) || null;
-
-    correlationIndexMap.set(groupId, nextIndex);
-    correlationParentMap.set(groupId, e.event_id);
-
-    e.event_sequence_index = nextIndex;
-    e.parent_event_id = parentId;
-  });
+  // REMOVED: Sequence indexing is strictly managed upstream by eventWorker.js
 
   // 7. Validate schema
   validateEvents(enriched);

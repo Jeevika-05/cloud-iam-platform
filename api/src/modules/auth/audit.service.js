@@ -6,33 +6,8 @@ import { classifyIp } from '../../shared/utils/ipClassifier.js';
 import { securityEventSeverityCounter } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
-// SEQUENCE HELPERS (atomic, per correlation_id)
+// SEQUENCE HELPERS (Removed: Centralized in eventWorker.js)
 // ─────────────────────────────────────────────
-
-/**
- * Returns the next 1-based sequence index for a given correlation_id.
- * Redis INCR is atomic — safe under concurrent workers.
- * Key expires after 1 hour (correlation window).
- */
-export const getNextSequenceIndex = async (correlationId) => {
-  const key = `seq:corr:${correlationId}`;
-  const idx = await redisClient.incr(key);
-  if (idx === 1) await redisClient.expire(key, 3600);
-  return idx;
-};
-
-/**
- * Atomically swaps in the new event_id as "latest" for this correlation_id,
- * returning the OLD value (= parent_event_id of the new event).
- * First event returns null. Uses GETSET — one round-trip, no race window.
- * Key expires after 1 hour (same window as sequence counter).
- */
-export const getPreviousEventId = async (correlationId, newEventId) => {
-  const key = `seq:prev:${correlationId}`;
-  const previous = await redisClient.getset(key, newEventId);
-  if (!previous) await redisClient.expire(key, 3600);
-  return previous || null;
-};
 
 // ─────────────────────────────────────────────
 // STEP 6 — EVENT DEDUPLICATION
@@ -149,17 +124,11 @@ const emitAttackEvent = async ({ correlationId, action, result, sourceIp, ipType
   }
 
   const eventId = crypto.randomUUID();
-  const [event_sequence_index, parent_event_id, intelligence] = await Promise.all([
-    getNextSequenceIndex(correlationId),
-    getPreviousEventId(correlationId, eventId),
-    calculateEventIntelligence(correlationId, timestamp, sourceIp, targetEndpoint || 'API'),
-  ]);
+  const intelligence = await calculateEventIntelligence(correlationId, timestamp, sourceIp, targetEndpoint || 'API');
 
   const attackEvent = {
     event_id: eventId,
     correlation_id: correlationId,
-    event_sequence_index,
-    parent_event_id,
     event_type: 'ATTACK',
     action,
     result,
@@ -218,11 +187,10 @@ export const logSecurityEvent = async (payload) => {
     return;
   }
 
-  // 🛡️ ACTIVE DEFENSE: Record strike BEFORE database operations
   const severity = inferSeverity(resolvedStatus);
-  const triggeringEventId = mergedMeta?.event_id || null;
+  const triggeringEvent = { correlation_id: correlationId, event_group_id: payload.event_group_id };
   if (severity && resolvedIp && resolvedEventType !== 'DEFENSE') {
-    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`, triggeringEventId).catch((err) => {
+    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`, triggeringEvent).catch((err) => {
       logger.error('RECORD_STRIKE_FAILED', { error: err.message, ip: resolvedIp });
     });
   }
@@ -269,14 +237,10 @@ export const logSecurityEvent = async (payload) => {
       timestamp,
   };
 
-  // ── Steps 1, 2 & 7: sequence index, parent linkage, and intelligence (atomic, concurrent-safe) ──
+  // ── Step 7: Intelligence (atomic, concurrent-safe) ──
   const eventId = baseGraphEvent.event_id;
   const targetEndpoint = baseGraphEvent.target_endpoint;
-  const [event_sequence_index, parent_event_id, intelligence] = await Promise.all([
-    getNextSequenceIndex(correlationId),
-    getPreviousEventId(correlationId, eventId),
-    calculateEventIntelligence(correlationId, timestamp, resolvedIp, targetEndpoint),
-  ]);
+  const intelligence = await calculateEventIntelligence(correlationId, timestamp, resolvedIp, targetEndpoint);
 
   // ── Steps 4 & 5: stage + attack_category ──
   const stage           = resolveStage(resolvedEventType, action);
@@ -285,8 +249,6 @@ export const logSecurityEvent = async (payload) => {
   const graphEvent = {
     ...baseGraphEvent,
     ...mergedMeta,
-    event_sequence_index,
-    parent_event_id,
     time_since_last_event_ms: intelligence.time_since_last_event_ms,
     // Only include fields when they carry a value — keeps null fields out of clean events
     ...(intelligence.correlation_reason && { correlation_reason: intelligence.correlation_reason }),
