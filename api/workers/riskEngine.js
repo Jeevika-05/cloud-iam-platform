@@ -113,6 +113,7 @@ export class RiskEngine {
       let maxTotalScore = 0;
       let finalSequence = [];
       let finalDelta = 0;
+      let maxPatternScore = 0;
 
       let offset = 0;
       for (const entity of entities) {
@@ -167,9 +168,18 @@ export class RiskEngine {
         const severity = event.severity ? event.severity.toUpperCase() : 'LOW';
         const severityScore = (SEVERITY_WEIGHTS[severity] || 2);
 
-        let entityTotal = currentScore + increment + patternScore + severityScore;
+        let adjustedIncrement = increment;
+        if (event.event_type === 'ATTACK') {
+          adjustedIncrement += 10;
+        }
+
+        let entityTotal = currentScore + adjustedIncrement + patternScore + severityScore;
         // Bounded Scoring Limits
         entityTotal = Math.floor(Math.max(0, Math.min(100, entityTotal)));
+        
+        if (patternScore > maxPatternScore) {
+          maxPatternScore = patternScore;
+        }
         
         const delta = entityTotal - previousScore;
 
@@ -209,22 +219,36 @@ export class RiskEngine {
         logger.warn("Invalid finalSequence type", { finalSequence });
       } 
 
-      const riskOutput = {
-        entity: entities,
-        risk_score: score,
-        risk_level: riskLevel,
+      const enrichedEvent = {
+        ...event,
+        risk_score: score ?? 0,
+        risk_level: riskLevel ?? 'LOW',
         sequence: formattedSequence,
-        delta: finalDelta
+        risk_delta: Math.floor(finalDelta),
+        is_defense_triggered: false
       };
+
+      // Active Defense Trigger — pass correlation_id for attack→defense correlation
+      if (score >= 60 || finalDelta > 20 || maxPatternScore >= 20) {
+        const strikeTriggerKey = `risk:triggered:${ip}:${slot}`;
+        const triggered = await this.redis.set(strikeTriggerKey, '1', 'EX', 600, 'NX');
+        if (triggered === 'OK') {
+          await recordStrike(ip, 'HIGH', `risk_engine_score_${score}_delta_${Math.floor(finalDelta)}`, enrichedEvent.correlation_id || enrichedEvent.event_id);
+          enrichedEvent.is_defense_triggered = true;
+          enrichedEvent.defense_reason = "risk_engine_trigger";
+          enrichedEvent.defense_action = "STRIKE";
+        }
+      }
 
       // 6. Observability Improvements
       logger.info('RISK_COMPUTED', {
         ip,
-        score,
-        riskLevel,
+        score: enrichedEvent.risk_score,
+        riskLevel: enrichedEvent.risk_level,
         eventType,
-        sequence: formattedSequence,
-        delta: Math.floor(finalDelta)
+        sequence: enrichedEvent.sequence,
+        delta: Math.floor(finalDelta),
+        is_defense_triggered: enrichedEvent.is_defense_triggered
       });
 
       // Output to Analysis Stream
@@ -232,19 +256,10 @@ export class RiskEngine {
         'risk_scores',
         'MAXLEN', '~', 10000,
         '*',
-        'data', JSON.stringify({ ...riskOutput, timestamp: new Date().toISOString() })
+        'data', JSON.stringify({ ...enrichedEvent, timestamp: new Date().toISOString() })
       );
 
-      // Active Defense Trigger — pass event_id for attack→defense correlation
-      if (riskLevel === 'HIGH' || finalDelta > 40) {
-        const strikeTriggerKey = `risk:triggered:${ip}:${slot}`;
-        const triggered = await this.redis.set(strikeTriggerKey, '1', 'EX', 600, 'NX');
-        if (triggered === 'OK') {
-          await recordStrike(ip, 'HIGH', `risk_engine_score_${score}_delta_${Math.floor(finalDelta)}`, event.event_id);
-        }
-      }
-
-      return riskOutput;
+      return enrichedEvent;
 
     } catch (err) {
       logger.error('RISK_ENGINE_PROCESSING_ERROR', { error: err.message, ip: event?.source_ip });

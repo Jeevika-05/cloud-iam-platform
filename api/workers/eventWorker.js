@@ -103,15 +103,30 @@ async function saveToPostgres(eventData) {
       ip:        eventData.source_ip  || 'unknown',
       userAgent: eventData.user_agent || 'unknown',
       metadata: {
-        ...(eventData.metadata || eventData),
-        // Preserve original user_id and email in metadata for Neo4j
-        user_id:    eventData.user_id    ?? null,
+        ...(eventData.metadata || {}),
+        
+        // ensure latest enriched fields override everything
+        event_id: eventData.event_id,
+        correlation_id: eventData.correlation_id,
+        event_type: eventData.event_type,
+        action: eventData.action,
+
+        event_sequence_index: eventData.event_sequence_index,
+        parent_event_id: eventData.parent_event_id,
+
+        source_ip: eventData.source_ip,
+        user_id: eventData.user_id ?? null,
         user_email: eventData.user_email ?? null,
         session_id: eventData.session_id ?? null,
+
         risk_score: eventData.risk_score ?? null,
         risk_level: eventData.risk_level ?? null,
         risk_error: eventData.risk_error ?? null,
-        sequence:   eventData.sequence   ?? [],
+        sequence: eventData.sequence ?? [],
+        risk_delta: eventData.risk_delta ?? null,
+        is_defense_triggered: eventData.is_defense_triggered ?? false,
+        defense_reason: eventData.defense_reason ?? null,
+        defense_action: eventData.defense_action ?? null,
       },
     },
   });
@@ -258,11 +273,8 @@ async function processMessage(messageId, keyValues) {
   try {
     const riskResult = await riskEngine.processEvent(eventData);
     if (riskResult) {
-      eventData.risk_score = riskResult.risk_score;
-      eventData.risk_level = riskResult.risk_level;
-      eventData.sequence   = riskResult.sequence;
+      eventData = riskResult;
     }
-    // riskResult === null means event was skipped (DEFENSE, no IP, etc.) — leave defaults
   } catch (err) {
     logger.error('RISK_ENGINE_ERROR', { error: err.message, event_id: eventData?.event_id });
     // Mark UNKNOWN so downstream consumers know risk was NOT computed (distinct from LOW)
