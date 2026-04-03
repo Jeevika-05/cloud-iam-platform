@@ -85,14 +85,38 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      attack-ingest:
-        condition: service_completed_successfully
     env_file:
       - .env
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
       REDIS_URL: redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./keys:/app/keys:ro
+    networks:
+      - backend
+
+  defense_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth_defense_worker
+    restart: unless-stopped
+    command: npm run worker:defense
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
+      REDIS_URL: redis://redis:6379
+      # Defense worker uses SCAN — safe on Redis 7 (image: redis:7-alpine)
     volumes:
       - .:/app
       - /app/node_modules
@@ -159,25 +183,7 @@ services:
       - backend
     restart: "no"
 
-  
-  ingest:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: auth_ingest
-    command: node scripts/neo4j_ingest.js --api-url http://backend:3000 --attack-file /app/reports/results.json --output /app/reports/unified_events.json --token ${INTERNAL_SERVICE_TOKEN}
-    depends_on:
-      attack-ingest:
-        condition: service_completed_successfully
-      worker:
-        condition: service_started
-      backend:
-        condition: service_healthy
-    volumes:
-      - ./reports:/app/reports
-    networks:
-      - backend
-    restart: "no"
+
 
   prometheus:
     image: prom/prometheus
@@ -199,6 +205,17 @@ services:
     networks:
       - backend
 
+  neo4j:
+    image: neo4j:5
+    container_name: auth_neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/password
+    networks:
+      - backend
 volumes:
   postgres_data:
 

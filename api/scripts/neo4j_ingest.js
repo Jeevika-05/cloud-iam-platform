@@ -83,29 +83,33 @@ function loadAttackEvents(filePath) {
     // Identity normalization: user_id MUST be UUID or null.
     // If the Rust engine set user_id to an email, move it to user_email.
     const rawUserId = e.user_id;
-    const userId = isUUID(rawUserId) ? rawUserId : null;
+    const userId    = isUUID(rawUserId) ? rawUserId : null;
     const userEmail = e.user_email || (!isUUID(rawUserId) ? rawUserId : null);
 
     return {
-      event_id: e.event_id,
-      correlation_id: e.correlation_id,
-      user_id: userId,
-      user_email: userEmail,
-      session_id: e.session_id || null,
-      event_type: 'ATTACK',
-      action: e.action,
-      source_ip: e.source_ip,
-      ip_type: e.ip_type || 'SIMULATED',
-      user_agent: e.user_agent || 'attack-engine',
-      agent_type: e.agent_type || 'SIMULATED',
-      target_type: e.target_type || 'API',
-      target_endpoint: e.target_endpoint,
-      result: e.result,
-      severity: e.severity,
-      risk_score: e.risk_score ?? null,
-      risk_level: e.risk_level ?? null,
-      timestamp: e.timestamp,
-      mode: raw.mode || (raw.active_defender_status === 'ENABLED' ? 'AFTER_ACTIVE_DEFENDER' : 'INFERRED'),
+      event_id:             e.event_id,
+      correlation_id:       e.correlation_id,
+      // TASK 2: event_priority drives Neo4j chain ordering — ATTACK=1 always before DEFENSE=2
+      event_priority:       e.event_priority ?? 1,
+      event_sequence_index: e.event_sequence_index ?? null,
+      parent_event_id:      e.parent_event_id ?? null,
+      user_id:              userId,
+      user_email:           userEmail,
+      session_id:           e.session_id || null,
+      event_type:           'ATTACK',
+      action:               e.action,
+      source_ip:            e.source_ip,
+      ip_type:              e.ip_type || 'SIMULATED',
+      user_agent:           e.user_agent || 'attack-engine',
+      agent_type:           e.agent_type || 'SIMULATED',
+      target_type:          e.target_type || 'API',
+      target_endpoint:      e.target_endpoint,
+      result:               e.result,
+      severity:             e.severity,
+      risk_score:           e.risk_score ?? null,
+      risk_level:           e.risk_level ?? null,
+      timestamp:            e.timestamp,
+      mode:                 raw.mode || (raw.active_defender_status === 'ENABLED' ? 'AFTER_ACTIVE_DEFENDER' : 'INFERRED'),
     };
   });
 }
@@ -137,30 +141,32 @@ async function loadDefenseEvents(apiUrl, token, since) {
     const events = dbEvents.map(e => {
       const meta = e.metadata || {};
       return {
-        event_id: meta.event_id,
-        correlation_id: meta.correlation_id,
-        event_sequence_index: meta.event_sequence_index,
-        parent_event_id: meta.parent_event_id,
-        user_id: e.userId,
-        user_email: meta.user_email,
-        session_id: meta.session_id,
-        event_type: 'DEFENSE',
-        action: meta.action || e.action,
-        source_ip: meta.source_ip || e.ip,
-        ip_type: meta.ip_type,
-        user_agent: meta.user_agent || e.userAgent,
-        agent_type: meta.agent_type,
-        target_type: meta.target_type,
-        target_endpoint: meta.target_endpoint,
-        result: meta.result || e.status,
-        severity: meta.severity,
-        risk_score: meta.risk_score,
-        risk_level: meta.risk_level,
-        timestamp: meta.timestamp,
-        reason: meta.reason,
-        strike_count: meta.strike_count,
-        ban_duration: meta.ban_duration,
-        mode: meta.mode
+        event_id:             meta.event_id,
+        correlation_id:       meta.correlation_id,
+        // TASK 2: event_priority from stored metadata — DEFENSE is always 2
+        event_priority:       meta.event_priority ?? 2,
+        event_sequence_index: meta.event_sequence_index ?? null,
+        parent_event_id:      meta.parent_event_id ?? null,
+        user_id:              e.userId,
+        user_email:           meta.user_email,
+        session_id:           meta.session_id,
+        event_type:           'DEFENSE',
+        action:               meta.action || e.action,
+        source_ip:            meta.source_ip || e.ip,
+        ip_type:              meta.ip_type,
+        user_agent:           meta.user_agent || e.userAgent,
+        agent_type:           meta.agent_type,
+        target_type:          meta.target_type,
+        target_endpoint:      meta.target_endpoint,
+        result:               meta.result || e.status,
+        severity:             meta.severity,
+        risk_score:           meta.risk_score,
+        risk_level:           meta.risk_level,
+        timestamp:            meta.timestamp,
+        reason:               meta.reason,
+        strike_count:         meta.strike_count,
+        ban_duration:         meta.ban_duration,
+        mode:                 meta.mode,
       };
     });
 
@@ -186,11 +192,11 @@ function enrichEvents(events) {
   const ATTACK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max expiration for linkage
 
   // ============================================
-  // PASS 1: Normalization & Map Relationships
+  // PASS 1: Normalization & Identity Resolution
   // ============================================
   const pass1 = events.map((e) => {
     // 1. Identity Normalization
-    let finalUserId = e.user_id === 'SYSTEM' ? null : e.user_id;
+    let finalUserId    = e.user_id    === 'SYSTEM' ? null : e.user_id;
     let finalUserEmail = e.user_email === 'SYSTEM' ? null : e.user_email;
 
     if (!isUUID(finalUserId)) {
@@ -201,7 +207,7 @@ function enrichEvents(events) {
     // 2. Event Normalization
     let eventType = e.event_type ? e.event_type.toUpperCase() : 'UNKNOWN';
     if (!['ATTACK', 'DEFENSE', 'AUTH', 'SECURITY', 'SYSTEM'].includes(eventType)) {
-       eventType = 'SYSTEM';
+      eventType = 'SYSTEM';
     }
 
     let action = e.action || 'UNKNOWN';
@@ -209,37 +215,36 @@ function enrichEvents(events) {
 
     const tsMs = new Date(e.timestamp).getTime();
 
-    // 3. Correlation Integrity & Linkage
+    // 3. TASK 2: Correlation — PRESERVE upstream correlation_id.
+    //    DO NOT overwrite with event_id for ATTACK events.
+    //    The upstream pipeline (eventWorker + riskEngine) assigned the canonical
+    //    correlation_id. Overwriting it here breaks the ATTACK→DEFENSE chain.
+    //    Only fall back to event_id if correlation_id is truly absent.
+    const correlationId = e.correlation_id || e.event_id;
+
+    // TASK 2: event_priority from upstream — do NOT derive locally.
+    // ATTACK=1, DEFENSE=2. If missing (e.g. old data), derive from event_type.
+    const eventPriority = e.event_priority ?? (eventType === 'DEFENSE' ? 2 : 1);
+
+    // Track last ATTACK per identity key for fallback DEFENSE→ATTACK linkage
+    // (only used when DEFENSE event has no upstream correlation_id)
     const identityKey = finalUserId || finalUserEmail || e.session_id || 'anon';
-    const baseKey = `${identityKey}-${e.source_ip || 'unknown'}`;
-    
-    let correlationId = e.correlation_id;
+    const baseKey     = `${identityKey}-${e.source_ip || 'unknown'}`;
     if (eventType === 'ATTACK') {
-      correlationId = e.event_id; // Root attack accurately to sync with lookup matches
-      lastAttackByKey.set(baseKey, { id: e.event_id, ts: tsMs });
-    } else if (eventType === 'DEFENSE') {
-      const lastAttack = lastAttackByKey.get(baseKey);
-      // Link only if within timeout window to prevent long-running merging
-      if (lastAttack && (tsMs - lastAttack.ts <= ATTACK_TIMEOUT_MS)) {
-        correlationId = lastAttack.id;
-      }
+      lastAttackByKey.set(baseKey, { id: correlationId, ts: tsMs });
     }
 
-    // Strict Attack Clustering Root
-    const eventGroupId = correlationId || e.event_id;
+    const eventGroupId = correlationId;
+    const sessionId    = e.session_id ?? `NO_SESSION_${identityKey}-${e.source_ip || 'unknown'}`;
 
-    // 4. Session Protection (no global NO_SESSION collapse)
-    const sessionId = e.session_id ?? `NO_SESSION_${identityKey}-${e.source_ip || 'unknown'}`;
+    let riskLevel = e.risk_level ?? (eventType === 'DEFENSE' ? (e.severity ?? null) : null);
+    let riskScore = e.risk_score ?? (eventType === 'DEFENSE' && e.strike_count ? e.strike_count * 10 : null);
 
-    // 5. Risk Scoring & System Classification
-    let riskLevel = e.risk_level ?? e.metadata?.risk_level ?? (eventType === 'DEFENSE' ? (e.severity ?? null) : null);
-    let riskScore = e.risk_score ?? e.metadata?.risk_score ?? (eventType === 'DEFENSE' && e.strike_count ? e.strike_count * 10 : null);
-    
     let agentType = e.agent_type ? e.agent_type.toUpperCase() : null;
-    const ipType = e.ip_type || (e.source_ip?.startsWith('192.168') ? 'SIMULATED' : 'REAL');
-    
+    const ipType  = e.ip_type || (e.source_ip?.startsWith('192.168') ? 'SIMULATED' : 'EXTERNAL');
+
     if (ipType === 'SIMULATED') {
-      agentType = 'ATTACK_ENGINE';
+      agentType = agentType || 'SIMULATED';
     } else if (!agentType || !AGENT_TYPES.includes(agentType)) {
       agentType = e.user_agent?.toLowerCase().includes('attack') ? 'ATTACK_ENGINE' : 'USER';
     }
@@ -249,8 +254,8 @@ function enrichEvents(events) {
     return {
       ...e,
       finalUserId, finalUserEmail, eventType, action, tsMs,
-      correlationId, eventGroupId, sessionId, riskLevel, riskScore,
-      agentType, ipType, timeBucket
+      correlationId, eventGroupId, eventPriority, sessionId,
+      riskLevel, riskScore, agentType, ipType, timeBucket,
     };
   });
 
@@ -267,42 +272,47 @@ function enrichEvents(events) {
   // PASS 2: Construct Final Output
   // ============================================
   return pass1.map((e) => {
-    const burstKey = `${e.eventGroupId}-${e.timeBucket}`;
+    const burstKey   = `${e.eventGroupId}-${e.timeBucket}`;
     const burstScore = groupBurstMap.get(burstKey) || 1;
-    
+
     return {
-      event_id: e.event_id,
-      correlation_id: e.correlationId || e.event_id, 
-      event_sequence_index: e.event_sequence_index,
-      parent_event_id: e.parent_event_id,
-      event_group_id: e.eventGroupId,
-      user_id: e.finalUserId,
-      user_email: e.finalUserEmail, 
-      session_id: e.sessionId,
-      event_type: e.eventType,
-      action: e.action,
-      source_ip: e.source_ip || 'unknown',
-      ip_type: e.ipType,
-      user_agent: e.user_agent || 'unknown',
-      agent_type: e.agentType,
-      target_type: e.target_type || 'API',
-      target_endpoint: e.target_endpoint || 'unknown',
-      result: e.result || 'UNKNOWN',
-      severity: e.severity || null, 
-      risk_score: e.riskScore,
-      risk_level: e.riskLevel,
-      timestamp: e.timestamp,
-      mode: e.mode || 'INFERRED',
-      is_attack_related: e.eventType === 'ATTACK' || (!!e.correlationId && e.correlationId !== e.event_id),
+      event_id:             e.event_id,
+      // TASK 2: Three-key deterministic sort — Neo4j MUST use this order:
+      //   ORDER BY correlation_id, event_priority, event_sequence_index
+      correlation_id:       e.correlationId,
+      event_priority:       e.eventPriority,           // 1=ATTACK, 2=DEFENSE
+      event_sequence_index: e.event_sequence_index ?? null,
+      parent_event_id:      e.parent_event_id    ?? null,
+      event_group_id:       e.eventGroupId,
+      user_id:              e.finalUserId,
+      user_email:           e.finalUserEmail,
+      session_id:           e.sessionId,
+      event_type:           e.eventType,
+      action:               e.action,
+      source_ip:            e.source_ip || 'unknown',
+      ip_type:              e.ipType,
+      user_agent:           e.user_agent || 'unknown',
+      agent_type:           e.agentType,
+      target_type:          e.target_type || 'API',
+      target_endpoint:      e.target_endpoint || 'unknown',
+      result:               e.result || 'UNKNOWN',
+      severity:             e.severity || null,
+      risk_score:           e.riskScore,
+      risk_level:           e.riskLevel,
+      timestamp:            e.timestamp,
+      mode:                 e.mode || 'INFERRED',
+      is_attack_related:    e.eventType === 'ATTACK' || (!!e.correlationId && e.correlationId !== e.event_id),
       is_defense_triggered: e.eventType === 'DEFENSE',
-      event_signature: `${e.eventType}-${e.action}-${e.source_ip || 'unknown'}-${e.timeBucket}`,
+      event_signature:      `${e.eventType}-${e.action}-${e.source_ip || 'unknown'}-${e.timeBucket}`,
       events_per_minute_bucket: burstScore,
-      correlation_confidence: parseFloat(( (e.finalUserId ? 1.0 : (e.finalUserEmail ? 0.8 : 0.5)) + (e.session_id ? 0.5 : 0.0) ).toFixed(1)),
+      correlation_confidence: parseFloat(
+        ((e.finalUserId ? 1.0 : (e.finalUserEmail ? 0.8 : 0.5)) + (e.session_id ? 0.5 : 0.0)).toFixed(1)
+      ),
       ...(e.eventType === 'DEFENSE' && {
-        reason: e.reason || 'UNKNOWN',
+        reason:       e.reason       || 'UNKNOWN',
         strike_count: e.strike_count || 1,
-        ban_duration: e.ban_duration || null
-      })
+        ban_duration: e.ban_duration || null,
+      }),
     };
   });
 }
@@ -330,16 +340,29 @@ function deduplicateEvents(events) {
   return unique;
 }
 
-// ─────────────────────────────────────────────
-// SORT BY CORRELATION AND SEQUENCE
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// TASK 2: DETERMINISTIC SORT
+//
+// Primary:   correlation_id   (groups all events in the same attack chain)
+// Secondary: event_priority   (1=ATTACK always before 2=DEFENSE)
+// Tertiary:  event_sequence_index (arrival order within same type)
+//
+// This eliminates all timestamp-based and arrival-order-based ambiguity.
+// A DEFENSE event that arrives in the stream BEFORE its triggering ATTACK
+// will still be placed AFTER it in the output, because event_priority=2 > 1.
+// ─────────────────────────────────────────────────────────────────────────────
 function sortEvents(events) {
   return events.sort((a, b) => {
     const cA = a.correlation_id || a.event_id;
     const cB = b.correlation_id || b.event_id;
     if (cA < cB) return -1;
-    if (cA > cB) return 1;
-    return (a.event_sequence_index || 0) - (b.event_sequence_index || 0);
+    if (cA > cB) return  1;
+    // Within same chain: ATTACK (1) before DEFENSE (2)
+    const pA = a.event_priority ?? 1;
+    const pB = b.event_priority ?? 1;
+    if (pA !== pB) return pA - pB;
+    // Tiebreak: sequence index
+    return (a.event_sequence_index ?? 0) - (b.event_sequence_index ?? 0);
   });
 }
 

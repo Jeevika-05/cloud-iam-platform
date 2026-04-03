@@ -127,16 +127,17 @@ const emitAttackEvent = async ({ correlationId, action, result, sourceIp, ipType
   const intelligence = await calculateEventIntelligence(correlationId, timestamp, sourceIp, targetEndpoint || 'API');
 
   const attackEvent = {
-    event_id: eventId,
-    correlation_id: correlationId,
-    event_type: 'ATTACK',
+    event_id:        eventId,
+    correlation_id:  correlationId,
+    event_type:      'ATTACK',
+    event_priority:  1,            // H1: ATTACK sorts before DEFENSE (2) in Neo4j chain reconstruction
+    agent_type:      'EXTERNAL',   // canonical — eventWorker uses this to gate risk scoring
     action,
     result,
-    source_ip: sourceIp,
-    ip_type: ipType,
-    user_agent: userAgent,
-    agent_type: 'EXTERNAL',
-    target_type: 'API',
+    source_ip:       sourceIp,
+    ip_type:         ipType,
+    user_agent:      userAgent,
+    target_type:     'API',
     severity,
     timestamp,
     ...intelligence,
@@ -171,14 +172,17 @@ const inferSeverity = (status) => {
 };
 
 export const logSecurityEvent = async (payload) => {
-  const { userId, action, status, ip, userAgent, metadata, event_type, source_ip, sessionId, ...restOfPayload } = payload;
+  // FIX: event_group_id is deprecated — only correlation_id is canonical.
+  // Destructure it out so it never leaks into mergedMeta or triggeringEvent.
+  const { userId, action, status, ip, userAgent, metadata, event_type, source_ip, sessionId, event_group_id: _deprecated, ...restOfPayload } = payload;
   const resolvedIp = ip || source_ip;
   const resolvedStatus = status || payload.result || 'SUCCESS';
   const resolvedEventType = event_type || metadata?.event_type || 'SECURITY';
 
   const metaJson = metadata ? JSON.parse(JSON.stringify(metadata)) : {};
   const mergedMeta = { ...metaJson, ...restOfPayload, event_type: resolvedEventType };
-  
+
+  // SINGLE CORRELATION SYSTEM: use correlation_id only — no event_group_id fallback.
   const correlationId = mergedMeta?.correlation_id || payload.correlationId || crypto.randomUUID();
 
   // ── Step 6: Deduplication Check ──
@@ -188,7 +192,8 @@ export const logSecurityEvent = async (payload) => {
   }
 
   const severity = inferSeverity(resolvedStatus);
-  const triggeringEvent = { correlation_id: correlationId, event_group_id: payload.event_group_id };
+  // triggeringEvent carries ONLY correlation_id — no event_group_id
+  const triggeringEvent = { correlation_id: correlationId };
   if (severity && resolvedIp && resolvedEventType !== 'DEFENSE') {
     recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`, triggeringEvent).catch((err) => {
       logger.error('RECORD_STRIKE_FAILED', { error: err.message, ip: resolvedIp });
@@ -218,22 +223,32 @@ export const logSecurityEvent = async (payload) => {
   }
 
   // 🕸️ GRAPH_EVENT: Emit normalized event for Neo4j IMMEDIATELY
+  // FIX: agent_type uses a clean 3-value model: EXTERNAL | SYSTEM | SIMULATED.
+  // REAL is removed — all non-simulation external actors are EXTERNAL.
+  const resolvedAgentType = resolvedEventType === 'DEFENSE'
+    ? 'SYSTEM'
+    : (ipType === 'SIMULATED' ? 'SIMULATED' : 'EXTERNAL');
+
+  // H1: event_priority drives deterministic Neo4j sort order
+  const resolvedPriority = resolvedEventType === 'DEFENSE' ? 2 : 1;
+
   const baseGraphEvent = {
-      event_id: crypto.randomUUID(),
-      correlation_id: correlationId,
-      user_id: userId || 'SYSTEM',
-      user_email: mergedMeta?.user_email || null,
-      session_id: sessionId || mergedMeta?.jti || null,
-      event_type: resolvedEventType,
+      event_id:        crypto.randomUUID(),
+      correlation_id:  correlationId,
+      user_id:         userId || 'SYSTEM',
+      user_email:      mergedMeta?.user_email || null,
+      session_id:      sessionId || mergedMeta?.jti || null,
+      event_type:      resolvedEventType,
+      event_priority:  resolvedPriority,
+      agent_type:      resolvedAgentType,
       action,
-      source_ip: resolvedIp || 'unknown',
-      ip_type: ipType,
-      user_agent: userAgent || 'unknown',
-      agent_type: ipType === 'SIMULATED' ? 'SIMULATED' : 'REAL',
-      target_type: 'API',
+      source_ip:       resolvedIp || 'unknown',
+      ip_type:         ipType,
+      user_agent:      userAgent || 'unknown',
+      target_type:     'API',
       target_endpoint: mergedMeta?.path || 'internal',
-      result: resolvedStatus,
-      severity: resolvedSeverity,
+      result:          resolvedStatus,
+      severity:        resolvedSeverity,
       timestamp,
   };
 

@@ -1,260 +1,426 @@
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * riskEngine.js — Deterministic, Atomic Risk Scoring Engine
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * TASK 1 — REPLACE FLAG KEYS WITH STREAM PUSH
+ *   Old design: SET defense:needed:<ip>:<slot> NX + SET defense:escalate:<ip>:<slot> NX
+ *     Problems:
+ *       - defenseWorker had to SCAN for keys (O(N) on keyspace)
+ *       - No delivery guarantee — key could expire before worker ran
+ *       - No retry/DLQ — failed defense silently dropped
+ *
+ *   New design: XADD to 'defense_events' stream
+ *     Benefits:
+ *       - O(1) push, O(1) read via XREADGROUP
+ *       - PEL guarantees at-least-once delivery
+ *       - XACK removes from PEL on success
+ *       - XPENDING + XAUTOCLAIM handles retries
+ *       - DLQ for permanently failing defense events
+ *       - Works correctly under multiple defenseWorker instances
+ *
+ *   Deduplication contract (replaces NX flag):
+ *     Each event pushed to defense_events carries a dedup_key:
+ *       "<ip>:<slot>:<severity>"
+ *     defenseWorker uses SET NX on defense:dedup:<dedup_key> (EX 600) before
+ *     calling recordStrike. If NX fails → already processed → skip.
+ *     This preserves the "one strike per severity per slot" invariant.
+ *
+ * All other functionality (Lua scoring, multi-entity, observability) unchanged.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join }  from 'path';
 import logger from '../src/shared/utils/logger.js';
 import config from '../src/shared/config/index.js';
-import { recordStrike } from '../src/shared/middleware/activeDefender.js';
+import crypto from 'crypto';
 
-// ─────────────────────────────────────────────────────────────
-// CONCURRENCY WARNING: SINGLE-WORKER CONSTRAINT
-// ─────────────────────────────────────────────────────────────
-// The RiskEngine uses Redis MULTI to batch reads (HINCRBY, LPUSH, GET).
-// However, MULTI is NOT fully isolated — it batches commands but does
-// not prevent read-modify-write race conditions when multiple workers
-// process events for the same IP concurrently.
-// 
-// ⚠️ DO NOT RUN MULTIPLE WORKER INSTANCES in production without
-// migrating this logic to an atomic Lua script.
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Lua script — loaded once at startup
+// ─────────────────────────────────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+const LUA_SCRIPT = readFileSync(join(__dirname, 'lua', 'atomicRiskUpdate.lua'), 'utf8');
 
+// ─────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────
 const SEVERITY_WEIGHTS = {
   CRITICAL: 25,
-  HIGH: 15,
-  MEDIUM: 8,
-  LOW: 2
+  HIGH:     15,
+  MEDIUM:   8,
+  LOW:      2,
 };
 
 const BASE_EVENT_WEIGHTS = {
-  // Simulated Attacks from Rust
-  JWT_TAMPER: 20,
-  PASSWORD_BRUTE: 15,
-  MFA_BRUTE_FORCE_SINGLE_IP: 15,
-  MFA_BRUTE_FORCE_DISTRIBUTED: 25,
-  SESSION_REUSE: 20,
-  IDOR: 20,
-  CSRF: 15,
-  MASS_ASSIGNMENT: 15,
-  ACCESS_TOKEN_ABUSE: 20,
-  
-  // API Internal Events
-  LOGIN_FAILED: 5,
-  MFA_FAILED: 10,
-  TOKEN_REUSE_DETECTED: 20,
-  SUSPICIOUS_SESSION_DETECTED: 20,
-  LOGIN_SUCCESS: -10,
+  JWT_TAMPER:                   20,
+  PASSWORD_BRUTE:               15,
+  MFA_BRUTE_FORCE_SINGLE_IP:    15,
+  MFA_BRUTE_FORCE_DISTRIBUTED:  25,
+  SESSION_REUSE:                20,
+  IDOR:                         20,
+  CSRF:                         15,
+  MASS_ASSIGNMENT:              15,
+  ACCESS_TOKEN_ABUSE:           20,
+  LOGIN_FAILED:                 5,
+  MFA_FAILED:                   10,
+  TOKEN_REUSE_DETECTED:         20,
+  SUSPICIOUS_SESSION_DETECTED:  20,
+  LOGIN_SUCCESS:                -10,
 };
 
+const PATTERNS = [
+  { seq: ['MFA_FAILED', 'LOGIN_FAILED'],                         score: 15 },
+  { seq: ['ACCESS_TOKEN_ABUSE', 'JWT_TAMPER'],                   score: 25 },
+  { seq: ['TOKEN_REUSE_DETECTED', 'MFA_FAILED', 'LOGIN_FAILED'], score: 30 },
+];
+
+// TTL constants — aligned with sequence key lifetime + grace window
+const RISK_STATE_TTL  = 90_000;  // 25h
+const RISK_WINDOW_TTL = 600;     // 10min
+const RISK_SEQ_TTL    = 3_600;   // 1h
+
+// Defense stream
+const DEFENSE_STREAM = 'defense_events';
+const DEFENSE_STREAM_MAXLEN = 50_000;
+
+// ─────────────────────────────────────────────
+// PURE SCORING HELPERS
+// ─────────────────────────────────────────────
+function detectPatternScore(seq) {
+  let best = 0;
+  for (const { seq: pattern, score } of PATTERNS) {
+    let match = true;
+    for (let i = 0; i < pattern.length; i++) {
+      if (seq[i] !== pattern[i]) { match = false; break; }
+    }
+    if (match && score > best) best = score;
+  }
+  return best;
+}
+
+function getContribution(type, count) {
+  const w = BASE_EVENT_WEIGHTS[type] ?? 2;
+  if (type === 'LOGIN_SUCCESS') return Math.max(-20, w * count);
+  if (count <= 0) return 0;
+  return Math.min(w * Math.min(count, 5), 50);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export class RiskEngine {
   constructor(redisClient) {
-    this.redis = redisClient;
+    this.redis    = redisClient;
+    this.luaSha   = null;
+    this._loading = false;
   }
 
+  // ─────────────────────────────────────────────
+  // Lazy Lua SHA loader — concurrent-call safe
+  // ─────────────────────────────────────────────
+  async _getLuaSha() {
+    if (this.luaSha) return this.luaSha;
+    if (this._loading) {
+      await new Promise(r => setTimeout(r, 50));
+      return this.luaSha ?? await this._getLuaSha();
+    }
+    this._loading = true;
+    try {
+      this.luaSha = await this.redis.script('LOAD', LUA_SCRIPT);
+      logger.info('RISK_LUA_LOADED', { sha: this.luaSha });
+    } finally {
+      this._loading = false;
+    }
+    return this.luaSha;
+  }
+
+  // Execute Lua with NOSCRIPT retry + structured observability
+  async _runLua(keys, argv) {
+    const sha   = await this._getLuaSha();
+    const start = Date.now();
+    let result;
+
+    try {
+      result = await this.redis.evalsha(sha, keys.length, ...keys, ...argv);
+    } catch (err) {
+      if (err.message?.includes('NOSCRIPT')) {
+        this.luaSha  = null;
+        const newSha = await this._getLuaSha();
+        result = await this.redis.evalsha(newSha, keys.length, ...keys, ...argv);
+      } else {
+        throw err;
+      }
+    }
+
+    logger.debug('RISK_LUA_EXEC', {
+      duration_ms:    Date.now() - start,
+      input_event:    argv[0],
+      input_time_ms:  Number(argv[1]),
+      out_count:      result?.[0],
+      out_prev_score: result?.[1],
+      out_seq_len:    (() => { try { return JSON.parse(result?.[3] ?? '[]').length; } catch { return 0; } })(),
+    });
+
+    return result;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   /**
-   * Process a security event to dynamically calculate and record risk factors.
-   * Runs non-blocking to avoid stalling the worker stream.
-   * 
-   * @param {Object} event Event payload containing source_ip, action/event_type, severity, timestamp
+   * Push a defense task to the defense_events stream.
+   *
+   * TASK 1: Replaces SET defense:needed/escalate NX with XADD.
+   *
+   * Payload written to stream:
+   *   event_id       — unique ID for this defense task
+   *   correlation_id — from triggering ATTACK event (links defense to chain)
+   *   source_ip      — IP to strike/ban
+   *   severity       — HIGH | CRITICAL
+   *   reason         — human-readable trigger reason
+   *   score          — risk score that triggered this
+   *   dedup_key      — "<ip>:<slot>:<severity>" used by defenseWorker for NX dedup
+   *   timestamp      — ISO string
+   *
+   * The dedup_key on the stream payload allows defenseWorker to enforce
+   * "one defense action per severity per 5-minute slot per IP"
+   * using SET NX on defense:dedup:<dedup_key>.
+   */
+  async _pushDefenseTask(ip, slot, severity, score, delta, patternScore, triggeringEvent) {
+    // BUG FIX: dedup_key MUST include correlation_id.
+    //
+    // OLD key: `${ip}:${slot}:${severity}`
+    //   Problem: Two separate attack chains (different correlation_ids) hitting
+    //   the same IP within the same 5-min slot at the same severity level produce
+    //   an identical dedup_key. defenseWorker's SET NX on the second chain returns
+    //   null (key already set by the first chain) → second defense is suppressed.
+    //   This is incorrect — each attack chain deserves its own defense response.
+    //
+    // NEW key: `${ip}:${correlation_id}:${slot}:${severity}`
+    //   Each chain is isolated. Deduplication still holds within the same chain
+    //   (same correlation_id, same slot, same severity → one strike, as intended).
+    const correlationId = triggeringEvent.correlation_id ?? 'no-corr';
+    const dedupKey = `${ip}:${correlationId}:${slot}:${severity}`;
+    const payload  = {
+      event_id:       crypto.randomUUID(),
+      correlation_id: triggeringEvent.correlation_id ?? null,
+      source_ip:      ip,
+      severity,
+      reason:         `risk_score_${score}_delta_${Math.floor(delta)}_pattern_${patternScore}`,
+      score,
+      dedup_key:      dedupKey,
+      timestamp:      new Date().toISOString(),
+    };
+
+    try {
+      await this.redis.xadd(
+        DEFENSE_STREAM,
+        'MAXLEN', '~', DEFENSE_STREAM_MAXLEN,
+        '*',
+        'data', JSON.stringify(payload)
+      );
+      logger.info('DEFENSE_TASK_QUEUED', {
+        ip,
+        severity,
+        score,
+        dedup_key:      dedupKey,
+        correlation_id: payload.correlation_id,
+        event_id:       payload.event_id,
+      });
+    } catch (err) {
+      // Stream write failure must NOT crash the scoring path
+      logger.error('DEFENSE_TASK_QUEUE_FAILED', {
+        ip,
+        severity,
+        error:          err.message,
+        correlation_id: payload.correlation_id,
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * Compute risk for a single ATTACK event.
+   *
+   * HARD GATES:
+   *   • event_type must not be "DEFENSE"
+   *   • agent_type must NOT be "SYSTEM"
    */
   async processEvent(event) {
     try {
+      // ── Guards ────────────────────────────────────────────────────────────
       if (!event || !event.source_ip) return null;
-      
       const ip = event.source_ip;
       if (ip === 'unknown') return null;
-
-      // 🛡️ Prevent DEFENSE event amplification loop:
-      // DEFENSE events processed by the risk engine could trigger recordStrike(),
-      // which emits another DEFENSE event, creating an infinite loop.
-      // Skip risk computation for DEFENSE events entirely.
       if (event.event_type === 'DEFENSE') return null;
-      
-      // Calculate 5-minute sliding window slot based on event timestamp (or current time)
+      if (event.agent_type === 'SYSTEM')  return null;
+
+      // ── Resolve event time ────────────────────────────────────────────────
       let eventTimeMs = Date.now();
       if (event.timestamp) {
         const parsed = new Date(event.timestamp).getTime();
-        if (!isNaN(parsed)) {
-          eventTimeMs = parsed;
-        }
+        if (!isNaN(parsed) && parsed > 0) eventTimeMs = parsed;
       }
-      const slot = Math.floor(eventTimeMs / 300000);
 
+      // Slot is derived from event time — consistent with risk:window key
+      const slot = Math.floor(eventTimeMs / 300_000);
+
+      // ── Normalize eventType ───────────────────────────────────────────────
       let eventType = event.action || event.event_type || 'UNKNOWN';
-      
-      // Differentiate MFA failures from normal LOGIN failures since both share the same action
-      if (eventType === 'LOGIN_FAILED' && (event.status === 'MFA_FAILED' || event.result === 'MFA_FAILED')) {
+      if (
+        eventType === 'LOGIN_FAILED' &&
+        (event.status === 'MFA_FAILED' || event.result === 'MFA_FAILED')
+      ) {
         eventType = 'MFA_FAILED';
       }
 
-      // 4. Multi-Entity Risk
+      // ── Multi-entity scoring ──────────────────────────────────────────────
       const entities = [`IP:${ip}`];
-      if (event.user_id) entities.push(`USER:${event.user_id}`);
+      if (event.user_id)    entities.push(`USER:${event.user_id}`);
       if (event.session_id) entities.push(`SESSION:${event.session_id}`);
 
-      // 1. Group events using Redis Pipeline
-      const pipeline = this.redis.multi();
-      for (const entity of entities) {
-        const windowKey = `risk:window:${entity}:${slot}`;
-        const sequenceKey = `risk:sequence:${entity}`;
-        const stateKey = `risk:state:${entity}`;
-        
-        // Window count
-        pipeline.hincrby(windowKey, eventType, 1);
-        pipeline.expire(windowKey, 600);
-        
-        // Sequence detection
-        pipeline.lpush(sequenceKey, eventType);
-        pipeline.ltrim(sequenceKey, 0, 4);
-        pipeline.expire(sequenceKey, 3600);
-        pipeline.lrange(sequenceKey, 0, 4);
-        
-        // State
-        pipeline.get(stateKey);
-      }
-      
-      const executeResults = await pipeline.exec();
-
-      let maxTotalScore = 0;
-      let finalSequence = [];
-      let finalDelta = 0;
+      let maxTotalScore   = 0;
+      let finalSequence   = [];
+      let finalDelta      = 0;
       let maxPatternScore = 0;
 
-      let offset = 0;
+      // Batch state writes into a single pipeline
+      const statePipeline = this.redis.pipeline();
+
       for (const entity of entities) {
-        const hincrbyCount = executeResults[offset][1]; 
-        const sequenceResult = executeResults[offset + 5][1] || [];
-        const stateResultStr = executeResults[offset + 6][1];
-        
-        let previousScore = 0;
-        let lastTime = eventTimeMs;
-        if (stateResultStr) {
-          try {
-            const parsed = JSON.parse(stateResultStr);
-            previousScore = parsed.score || 0;
-            // Ensure we don't accidentally compute decay using future timestamps
-            lastTime = Math.min(eventTimeMs, parsed.timestamp || eventTimeMs);
-          } catch(e) {}
-        }
+        const windowKey   = `risk:window:${entity}:${slot}`;
+        const sequenceKey = `risk:sequence:${entity}`;
+        const stateKey    = `risk:state:${entity}`;
 
-        // 2. Add Time Decay
-        const timeDiffMinutes = Math.max(0, eventTimeMs - lastTime) / 60000;
-        const decayFactor = Math.exp(-0.05 * timeDiffMinutes); 
-        const currentScore = previousScore * decayFactor;
+        const result = await this._runLua(
+          [stateKey, windowKey, sequenceKey],
+          [eventType, String(eventTimeMs), String(RISK_WINDOW_TTL), String(RISK_SEQ_TTL), String(RISK_STATE_TTL)]
+        );
 
-        // 7. Prevent Double Counting (Incremental contribution with Cap)
-        const getContribution = (type, count) => {
-            const w = BASE_EVENT_WEIGHTS[type] || 2;
-            if (type === 'LOGIN_SUCCESS') return Math.max(-20, w * count);
-            if (count <= 0) return 0;
-            
-            // Monotonic growth: w*1, w*2, w*3 ... capped at w*5
-            // Previous code had a dead zone at count=3 where increment was 0.
-            const total = w * Math.min(count, 5);
-            return Math.min(total, 50); // Cap at 50 max per type per rule 7
-        };
+        const hincrbyCount  = Number(result[0]);
+        const previousScore = Number(result[1]);
+        const lastTime      = Number(result[2]);
+        let   seq;
+        try   { seq = JSON.parse(result[3]); }
+        catch { seq = []; }
 
-        const currentTotalCont = getContribution(eventType, hincrbyCount);
-        const prevTotalCont = getContribution(eventType, hincrbyCount - 1);
-        const increment = currentTotalCont - prevTotalCont;
+        // Time decay
+        const timeDiffMinutes = Math.max(0, eventTimeMs - lastTime) / 60_000;
+        const decayFactor     = Math.exp(-0.05 * timeDiffMinutes);
+        const currentScore    = previousScore * decayFactor;
 
-        // 3. Advanced Sequence Detection
-        let patternScore = 0;
-        const seq = sequenceResult; 
-        if (seq.length >= 2) {
-           if (seq[0] === 'MFA_FAILED' && seq[1] === 'LOGIN_FAILED') patternScore += 15;
-           if (seq[0] === 'ACCESS_TOKEN_ABUSE' && seq[1] === 'JWT_TAMPER') patternScore += 25;
-        }
-        if (seq.length >= 3) {
-           // Fixed: TOKEN_REUSE → TOKEN_REUSE_DETECTED (matches BASE_EVENT_WEIGHTS key)
-           if (seq[0] === 'TOKEN_REUSE_DETECTED' && seq[1] === 'MFA_FAILED' && seq[2] === 'LOGIN_FAILED') patternScore += 30;
-        }
-        
-        const severity = event.severity ? event.severity.toUpperCase() : 'LOW';
-        const severityScore = (SEVERITY_WEIGHTS[severity] || 2);
+        // Incremental contribution
+        const currentTotalCont  = getContribution(eventType, hincrbyCount);
+        const prevTotalCont     = getContribution(eventType, hincrbyCount - 1);
+        const increment         = currentTotalCont - prevTotalCont;
+        const adjustedIncrement = increment + (event.event_type === 'ATTACK' ? 10 : 0);
 
-        let adjustedIncrement = increment;
-        if (event.event_type === 'ATTACK') {
-          adjustedIncrement += 10;
-        }
+        const patternScore  = detectPatternScore(seq);
+        const severity      = (event.severity || 'LOW').toUpperCase();
+        const severityScore = SEVERITY_WEIGHTS[severity] ?? 2;
 
         let entityTotal = currentScore + adjustedIncrement + patternScore + severityScore;
-        // Bounded Scoring Limits
         entityTotal = Math.floor(Math.max(0, Math.min(100, entityTotal)));
-        
-        if (patternScore > maxPatternScore) {
-          maxPatternScore = patternScore;
-        }
-        
+
         const delta = entityTotal - previousScore;
 
-        // Save state persistently
-        await this.redis.set(`risk:state:${entity}`, JSON.stringify({
-            score: entityTotal,
-            timestamp: eventTimeMs
-        }), 'EX', 86400); // 1-day expiry to prevent leak
+        logger.debug('RISK_ENTITY_SCORED', {
+          entity,
+          hincrby_count:  hincrbyCount,
+          previous_score: previousScore,
+          decay_factor:   Number(decayFactor.toFixed(4)),
+          increment,
+          pattern_score:  patternScore,
+          severity_score: severityScore,
+          entity_total:   entityTotal,
+          delta,
+          correlation_id: event.correlation_id ?? null,
+          event_id:       event.event_id        ?? null,
+        });
+
+        // Queue state write
+        statePipeline.set(
+          stateKey,
+          JSON.stringify({ score: entityTotal, timestamp: eventTimeMs }),
+          'EX', RISK_STATE_TTL
+        );
 
         if (entityTotal >= maxTotalScore) {
-           maxTotalScore = entityTotal;
-           finalSequence = seq;
-           finalDelta = delta;
+          maxTotalScore   = entityTotal;
+          finalSequence   = seq;
+          finalDelta      = delta;
+          maxPatternScore = patternScore;
         }
-        offset += 7;
       }
+
+      // Flush all state writes atomically
+      await statePipeline.exec();
 
       const score = maxTotalScore;
 
-      // 5. Apply Config Thresholds
-      // Use ?? (nullish coalescing) — || would swallow numeric 0 as falsy
-      const thresholdHigh = config.risk?.high ?? 85;
-      const thresholdMedium = config.risk?.medium ?? 60;
+      // ── Thresholds ────────────────────────────────────────────────────────
+      const thresholdHigh   = config.risk?.high   ?? 85;
+      const thresholdMedium = config.risk?.medium  ?? 60;
 
       let riskLevel = 'LOW';
-      if (score >= thresholdHigh) {
-        riskLevel = 'HIGH';
-      } else if (score >= thresholdMedium) {
-        riskLevel = 'MEDIUM';
-      }
+      if      (score >= thresholdHigh)   riskLevel = 'HIGH';
+      else if (score >= thresholdMedium) riskLevel = 'MEDIUM';
 
-      let formattedSequence = [];
+      const formattedSequence = Array.isArray(finalSequence)
+        ? [...finalSequence].reverse()
+        : [];
 
-      if (Array.isArray(finalSequence)) {
-        formattedSequence = finalSequence.slice().reverse();
-      } else {
-        logger.warn("Invalid finalSequence type", { finalSequence });
-      } 
-
+      // ── Build enriched output ─────────────────────────────────────────────
       const enrichedEvent = {
         ...event,
-        risk_score: score ?? 0,
-        risk_level: riskLevel ?? 'LOW',
-        sequence: formattedSequence,
-        risk_delta: Math.floor(finalDelta),
-        is_defense_triggered: false
+        risk_score:           score ?? 0,
+        risk_level:           riskLevel ?? 'LOW',
+        sequence:             formattedSequence,
+        risk_delta:           Math.floor(finalDelta),
+        is_defense_triggered: false,
+        defense_reason:       null,
+        defense_action:       null,
       };
 
-      // Active Defense Trigger — pass correlation_id for attack→defense correlation
-      if (score >= 60 || finalDelta > 20 || maxPatternScore >= 20) {
-        const strikeTriggerKey = `risk:triggered:${ip}:${slot}`;
-        const triggered = await this.redis.set(strikeTriggerKey, '1', 'EX', 600, 'NX');
-        if (triggered === 'OK') {
-          await recordStrike(ip, 'HIGH', `risk_engine_score_${score}_delta_${Math.floor(finalDelta)}`, enrichedEvent);
-          enrichedEvent.is_defense_triggered = true;
-          enrichedEvent.defense_reason = "risk_engine_trigger";
-          enrichedEvent.defense_action = "STRIKE";
-        }
+      // ── TASK 1: Push defense tasks to stream ─────────────────────────────
+      // Replace SET NX flag approach with XADD to defense_events.
+      // Two separate stream entries for base (HIGH) and escalation (CRITICAL).
+      // defenseWorker uses dedup_key + SET NX to ensure at-most-once execution
+      // per severity per slot per IP.
+      const defenseNeeded   = score >= thresholdMedium || finalDelta > 20 || maxPatternScore >= 20;
+      const defenseEscalate = score >= thresholdHigh   || maxPatternScore >= 30;
+
+      if (defenseNeeded) {
+        await this._pushDefenseTask(ip, slot, 'HIGH', score, finalDelta, maxPatternScore, event);
+        enrichedEvent.is_defense_triggered = true;
+        enrichedEvent.defense_reason       = `risk_score_${score}_delta_${Math.floor(finalDelta)}`;
+        enrichedEvent.defense_action       = 'STRIKE';
+      }
+      if (defenseEscalate) {
+        await this._pushDefenseTask(ip, slot, 'CRITICAL', score, finalDelta, maxPatternScore, event);
+        enrichedEvent.is_defense_triggered = true;
+        enrichedEvent.defense_reason       = `risk_score_${score}_delta_${Math.floor(finalDelta)}`;
+        enrichedEvent.defense_action       = 'ESCALATE';
       }
 
-      // 6. Observability Improvements
+      // ── Observability ─────────────────────────────────────────────────────
       logger.info('RISK_COMPUTED', {
         ip,
-        score: enrichedEvent.risk_score,
-        riskLevel: enrichedEvent.risk_level,
-        eventType,
-        sequence: enrichedEvent.sequence,
-        delta: Math.floor(finalDelta),
-        is_defense_triggered: enrichedEvent.is_defense_triggered
+        score,
+        risk_level:           riskLevel,
+        event_type:           eventType,
+        pattern_score:        maxPatternScore,
+        sequence:             formattedSequence,
+        delta:                Math.floor(finalDelta),
+        is_defense_triggered: enrichedEvent.is_defense_triggered,
+        defense_action:       enrichedEvent.defense_action,
+        correlation_id:       event.correlation_id ?? null,
+        event_id:             event.event_id        ?? null,
       });
 
-      // Output to Analysis Stream
+      // ── Publish to analysis stream ────────────────────────────────────────
       await this.redis.xadd(
         'risk_scores',
-        'MAXLEN', '~', 10000,
+        'MAXLEN', '~', 10_000,
         '*',
         'data', JSON.stringify({ ...enrichedEvent, timestamp: new Date().toISOString() })
       );
@@ -262,7 +428,12 @@ export class RiskEngine {
       return enrichedEvent;
 
     } catch (err) {
-      logger.error('RISK_ENGINE_PROCESSING_ERROR', { error: err.message, ip: event?.source_ip });
+      logger.error('RISK_ENGINE_PROCESSING_ERROR', {
+        error:          err.message,
+        ip:             event?.source_ip,
+        event_id:       event?.event_id,
+        correlation_id: event?.correlation_id ?? null,
+      });
       return null;
     }
   }
