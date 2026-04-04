@@ -147,7 +147,7 @@ services:
     build:
       context: ../simulation-engine/cloudshield-attacker
       dockerfile: Dockerfile
-    container_name: auth_attacker
+    
     depends_on:
       backend:
         condition: service_healthy
@@ -168,7 +168,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: auth_attack_ingest
     command: node scripts/ingestAttackEvents.js --file /app/reports/results.json
     depends_on:
       redis:
