@@ -143,6 +143,7 @@ services:
       - backend
 
   attacker:
+    profiles: ["attack"]
     build:
       context: ../simulation-engine/cloudshield-attacker
       dockerfile: Dockerfile
@@ -163,6 +164,7 @@ services:
 
   #  Attack ingestion (results.json → Redis)
   attack-ingest:
+    profiles: ["attack"]
     build:
       context: .
       dockerfile: Dockerfile
