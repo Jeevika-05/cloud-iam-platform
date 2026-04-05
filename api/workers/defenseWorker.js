@@ -54,13 +54,43 @@
 
 import Redis   from 'ioredis';
 import winston from 'winston';
+import http    from 'http';
 import { redis as redisConfig } from '../src/shared/config/index.js';
 import { recordStrike }         from '../src/shared/middleware/activeDefender.js';
 import { 
   dlqSize, retryAttemptsTotal, redisStreamLag, eventsInflightGauge,
   workerAliveGauge, redisConnectionStatus, processingBacklogSize,
-  workerLastProcessedTimestamp 
+  workerLastProcessedTimestamp, register
 } from '../src/metrics/metrics.js';
+
+// ─────────────────────────────────────────────
+// METRICS HTTP SERVER (scraped by Prometheus)
+// ─────────────────────────────────────────────
+const DEFENSE_WORKER_METRICS_PORT = parseInt(process.env.DEFENSE_WORKER_METRICS_PORT || '9092', 10);
+
+const metricsServer = http.createServer(async (req, res) => {
+  if (req.method === 'GET' && req.url === '/metrics') {
+    try {
+      const output = await register.metrics();
+      res.writeHead(200, { 'Content-Type': register.contentType });
+      res.end(output);
+    } catch (err) {
+      res.writeHead(500);
+      res.end(err.message);
+    }
+  } else {
+    res.writeHead(404);
+    res.end('Not Found');
+  }
+});
+
+metricsServer.listen(DEFENSE_WORKER_METRICS_PORT, () => {
+  console.log(JSON.stringify({ level: 'info', message: 'DEFENSE_METRICS_SERVER_LISTENING', port: DEFENSE_WORKER_METRICS_PORT }));
+});
+
+metricsServer.on('error', (err) => {
+  console.error(JSON.stringify({ level: 'error', message: 'DEFENSE_METRICS_SERVER_ERROR', error: err.message }));
+});
 
 // ─────────────────────────────────────────────
 // Logger
@@ -114,6 +144,8 @@ let shuttingDown = false;
 async function shutdown(signal) {
   logger.info('DEFENSE_WORKER_SHUTDOWN', { signal });
   shuttingDown = true;
+  // Close metrics server first so Prometheus stops scraping
+  await new Promise((resolve) => metricsServer.close(resolve));
   await new Promise(r => setTimeout(r, 1500));
   await redisClient.quit();
   logger.info('DEFENSE_WORKER_STOPPED', { signal });

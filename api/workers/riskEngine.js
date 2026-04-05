@@ -247,6 +247,13 @@ export class RiskEngine {
         correlation_id: payload.correlation_id,
         event_id:       payload.event_id,
       });
+      // FIX: Increment INSIDE try — only count as 'success' when XADD actually succeeded
+      defenseEventsTriggeredTotal.inc({
+        action:     triggeringEvent?.action || triggeringEvent?.event_type || 'UNKNOWN',
+        event_type: triggeringEvent?.event_type || 'UNKNOWN',
+        severity:   severity || 'LOW',
+        status:     'success',
+      });
     } catch (err) {
       // Stream write failure must NOT crash the scoring path
       logger.error('DEFENSE_TASK_QUEUE_FAILED', {
@@ -255,14 +262,15 @@ export class RiskEngine {
         error:          err.message,
         correlation_id: payload.correlation_id,
       });
+      // FIX: Count the real failure so status:'error' is visible in Prometheus
+      defenseEventsTriggeredTotal.inc({
+        action:     triggeringEvent?.action || triggeringEvent?.event_type || 'UNKNOWN',
+        event_type: triggeringEvent?.event_type || 'UNKNOWN',
+        severity:   severity || 'LOW',
+        status:     'error',
+      });
     }
 
-    defenseEventsTriggeredTotal.inc({
-      action: triggeringEvent?.action || triggeringEvent?.event_type || 'UNKNOWN',
-      event_type: triggeringEvent?.event_type || 'UNKNOWN',
-      severity: severity || 'LOW',
-      status: 'success'
-    });
     if (severity === 'CRITICAL') {
       escalateActionsTotal.inc();
     }

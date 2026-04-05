@@ -293,6 +293,9 @@ const banIp = async (ip, severity, reason, triggeringEvent = {}) => {
       ? `${duration / 60}m`
       : `${duration / 3600}h`;
 
+    // FIX: bansTriggeredTotal was imported but never incremented — wire it here
+    bansTriggeredTotal.inc({ severity, duration: durationLabel });
+
     logger.warn('IP_BANNED', {
       ip,
       reason,

@@ -32,16 +32,48 @@ import Redis          from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import winston        from 'winston';
 import crypto         from 'crypto';
+import http           from 'http';
 import { 
   streamConsumerLag, securityEventsProcessedTotal, eventsProcessingLatencyMs,
   neo4jWriteTotal, neo4jWriteLatencyMs,
   neo4jFailedEventsQueueSize, dlqSize, retryAttemptsTotal, redisStreamLag,
   eventsInflightGauge, processingBacklogSize, workerLastProcessedTimestamp,
-  workerAliveGauge, redisConnectionStatus, neo4jConnectionStatus
+  workerAliveGauge, redisConnectionStatus, neo4jConnectionStatus,
+  register
 } from '../src/metrics/metrics.js';
 import { RiskEngine }        from './riskEngine.js';
 import { redis as redisConfig } from '../src/shared/config/index.js';
 import { mergeEventToGraph, closeNeo4jDriver } from '../src/shared/db/neo4j.js';
+
+// ─────────────────────────────────────────────
+// METRICS HTTP SERVER (scraped by Prometheus)
+// ─────────────────────────────────────────────
+const WORKER_METRICS_PORT = parseInt(process.env.WORKER_METRICS_PORT || '9091', 10);
+
+const metricsServer = http.createServer(async (req, res) => {
+  if (req.method === 'GET' && req.url === '/metrics') {
+    try {
+      const output = await register.metrics();
+      res.writeHead(200, { 'Content-Type': register.contentType });
+      res.end(output);
+    } catch (err) {
+      res.writeHead(500);
+      res.end(err.message);
+    }
+  } else {
+    res.writeHead(404);
+    res.end('Not Found');
+  }
+});
+
+metricsServer.listen(WORKER_METRICS_PORT, () => {
+  // logger is defined later; use console for this startup message
+  console.log(JSON.stringify({ level: 'info', message: 'METRICS_SERVER_LISTENING', port: WORKER_METRICS_PORT }));
+});
+
+metricsServer.on('error', (err) => {
+  console.error(JSON.stringify({ level: 'error', message: 'METRICS_SERVER_ERROR', error: err.message }));
+});
 
 // ─────────────────────────────────────────────
 // Logger
@@ -112,6 +144,8 @@ let shuttingDown = false;
 async function shutdown(signal) {
   logger.info('WORKER_SHUTDOWN_INITIATED', { signal });
   shuttingDown = true;
+  // Close metrics server first so Prometheus stops scraping
+  await new Promise((resolve) => metricsServer.close(resolve));
   await new Promise((r) => setTimeout(r, 2000));   // drain in-flight ops
   await closeNeo4jDriver();
   await redisClient.quit();
@@ -413,6 +447,8 @@ async function enrichSequenceAndParent(eventData) {
 // (DB pre-INSERT check in saveToPostgres is the 2nd gate for expired keys)
 // ─────────────────────────────────────────────────────────────────────────────
 async function processMessage(messageId, keyValues) {
+  // FIX: Increment inflight gauge at the START of every message so .dec() has a matching .inc()
+  eventsInflightGauge.inc({ worker: 'eventWorker' });
   // ── 1. Extract raw data field ──────────────────────────────────────────────
   let rawData = null;
   for (let i = 0; i < keyValues.length; i += 2) {
@@ -421,6 +457,7 @@ async function processMessage(messageId, keyValues) {
 
   if (!rawData) {
     logger.warn('EVENT_MISSING_DATA_FIELD', { messageId });
+    eventsInflightGauge.dec({ worker: 'eventWorker' });
     return true;   // ACK — permanently malformed
   }
 
@@ -430,6 +467,7 @@ async function processMessage(messageId, keyValues) {
     eventData = JSON.parse(rawData);
   } catch {
     await sendToDLQ(messageId, rawData, 'JSON_PARSE_ERROR');
+    eventsInflightGauge.dec({ worker: 'eventWorker' });
     return true;
   }
 
@@ -443,12 +481,14 @@ async function processMessage(messageId, keyValues) {
   const isProcessed = await redisClient.get(processedKey);
   if (isProcessed) {
     logger.debug('EVENT_ALREADY_PROCESSED', { ...logCtx(eventData) });
+    eventsInflightGauge.dec({ worker: 'eventWorker' });
     return true;
   }
 
   const acquired = await redisClient.set(processingKey, '1', 'EX', 300, 'NX');
   if (acquired === null) {
     logger.debug('EVENT_PROCESSING_BY_OTHER_WORKER', { ...logCtx(eventData) });
+    eventsInflightGauge.dec({ worker: 'eventWorker' });
     return false; // Cannot acquire lock — leave in PEL, do not ACK
   }
 
@@ -486,8 +526,12 @@ async function processMessage(messageId, keyValues) {
         status: 'success'
       });
       const processLatency = Date.now() - new Date(eventData.timestamp).getTime();
-      eventsProcessingLatencyMs.observe(processLatency > 0 ? processLatency : 0);
+      // FIX: DEFENSE fast-path must also use labeled observe (metric defined with { worker })
+      eventsProcessingLatencyMs.observe({ worker: 'eventWorker' }, processLatency > 0 ? processLatency : 0);
+      // FIX: Update timestamp on DEFENSE path — previously missing, causing stale metric
+      workerLastProcessedTimestamp.set({ worker: 'eventWorker' }, Date.now());
 
+      eventsInflightGauge.dec({ worker: 'eventWorker' });
       return true;
     }
 
