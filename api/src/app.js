@@ -21,6 +21,7 @@ import { authenticate } from './shared/middleware/authenticate.js';
 import logger from './shared/utils/logger.js';
 import { register, requestCounter } from './metrics/metrics.js';
 import { activeDefenseMiddleware } from './shared/middleware/activeDefender.js';
+import { internalAuth } from './shared/middleware/internalAuth.js';
 
 const app = express();
 
@@ -114,7 +115,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.get('/metrics', async (req, res) => {
+// 🔒 SEC-RBAC: Metrics endpoint restricted to internal service access only.
+// Previously exposed without auth — attackers could read risk thresholds,
+// ban counts, and system architecture from metric names and labels.
+// Prometheus scraper must pass x-internal-token header.
+app.get('/metrics', internalAuth, async (req, res) => {
   try {
     res.set('Content-Type', register.contentType);
     res.send(await register.metrics());

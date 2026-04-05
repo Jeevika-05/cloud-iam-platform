@@ -3,6 +3,7 @@ import axios from 'axios';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
+import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import prisma from '../../shared/config/database.js';
 import { successResponse } from '../../shared/utils/response.js';
 import logger from '../../shared/utils/logger.js';
@@ -19,8 +20,9 @@ router.use(authorizeRoles('ADMIN', 'SECURITY_ANALYST'));
 
 // ─────────────────────────────────────────────
 // GET /summary
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → handler
 // ─────────────────────────────────────────────
-router.get('/summary', authorizePolicy({ action: 'read', resource: 'analytics' }), async (req, res, next) => {
+router.get('/summary', requirePermission('analytics:view'), authorizePolicy({ action: 'read', resource: 'analytics' }), async (req, res, next) => {
   try {
     const [totalUsers, roleBreakdown] = await Promise.all([
       prisma.user.count(),
@@ -64,6 +66,7 @@ router.get('/summary', authorizePolicy({ action: 'read', resource: 'analytics' }
 router.get(
   '/internal-demo/:userId',
   authorizeRoles('ADMIN'),
+  requirePermission('analytics:internal_demo'),
   async (req, res, next) => {
     try {
       const { userId } = req.params;

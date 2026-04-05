@@ -4,6 +4,7 @@ import * as userService from './user.service.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
+import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import { internalAuth } from '../../shared/middleware/internalAuth.js';
 import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
@@ -22,10 +23,12 @@ router.use(authenticate);
 
 // ─────────────────────────────────────────────
 // ADMIN only — full user management
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → handler
 // ─────────────────────────────────────────────
 router.get(
   '/',
   authorizeRoles('ADMIN'),
+  requirePermission('users:list'),
   authorizePolicy({ action: 'read', resource: 'user' }),
   userController.getAllUsers
 );
@@ -33,6 +36,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  requirePermission('users:read'),
   authorizePolicy({
     action: 'read',
     resource: 'user',
@@ -48,6 +52,7 @@ router.get(
 router.patch(
   '/:id/role',
   authorizeRoles('ADMIN'),
+  requirePermission('users:update_role'),
   authorizePolicy({ action: 'update', resource: 'user' }),
   userIdParamRule,
   updateRoleRules,
@@ -58,6 +63,7 @@ router.patch(
 router.delete(
   '/:id',
   authorizeRoles('ADMIN'),
+  requirePermission('users:delete'),
   authorizePolicy({ action: 'delete', resource: 'user' }),
   userIdParamRule,
   validate,
