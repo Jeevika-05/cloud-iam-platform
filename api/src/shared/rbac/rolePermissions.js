@@ -37,6 +37,10 @@ export const ROLE_PERMISSIONS = Object.freeze({
     P.SESSIONS_LIST_OWN,
     P.SESSIONS_REVOKE_OWN,
 
+    // MFA self-service
+    P.MFA_SETUP,
+    P.MFA_VERIFY,
+
     // Analytics
     P.ANALYTICS_VIEW,
     P.ANALYTICS_INTERNAL,
@@ -68,6 +72,10 @@ export const ROLE_PERMISSIONS = Object.freeze({
     P.SESSIONS_LIST_OWN,
     P.SESSIONS_REVOKE_OWN,
 
+    // MFA self-service
+    P.MFA_SETUP,
+    P.MFA_VERIFY,
+
     // Analytics — core analyst function
     P.ANALYTICS_VIEW,
 
@@ -86,6 +94,10 @@ export const ROLE_PERMISSIONS = Object.freeze({
     P.PROFILE_UPDATE,
     P.SESSIONS_LIST_OWN,
     P.SESSIONS_REVOKE_OWN,
+
+    // MFA self-service — all users can set up MFA
+    P.MFA_SETUP,
+    P.MFA_VERIFY,
   ]),
 });
 

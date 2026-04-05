@@ -22,7 +22,7 @@ router.use(authenticate);
 
 
 // ─────────────────────────────────────────────
-// ADMIN only — full user management
+// ADMIN only — list all users
 // Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → handler
 // ─────────────────────────────────────────────
 router.get(
@@ -33,9 +33,18 @@ router.get(
   userController.getAllUsers
 );
 
+// ─────────────────────────────────────────────
+// ADMIN + SECURITY_ANALYST — read a single user
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → validate → handler
+//
+// FIX: authorizeRoles('ADMIN', 'SECURITY_ANALYST') added.
+// Previously only requirePermission guarded this route; the role guard
+// was missing, breaking the canonical middleware chain pattern and
+// bypassing the first defence-in-depth layer.
+// ─────────────────────────────────────────────
 router.get(
   '/:id',
-  authenticate,
+  authorizeRoles('ADMIN', 'SECURITY_ANALYST'),
   requirePermission('users:read'),
   authorizePolicy({
     action: 'read',
@@ -49,6 +58,10 @@ router.get(
   userController.getUserById
 );
 
+// ─────────────────────────────────────────────
+// ADMIN only — update a user's role
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → validate → handler
+// ─────────────────────────────────────────────
 router.patch(
   '/:id/role',
   authorizeRoles('ADMIN'),
@@ -60,6 +73,10 @@ router.patch(
   userController.updateUserRole
 );
 
+// ─────────────────────────────────────────────
+// ADMIN only — delete a user
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → validate → handler
+// ─────────────────────────────────────────────
 router.delete(
   '/:id',
   authorizeRoles('ADMIN'),
@@ -112,4 +129,3 @@ internalRouter.get('/:id', internalLimiter, internalAuth, async (req, res, next)
 });
 
 export { internalRouter };
-

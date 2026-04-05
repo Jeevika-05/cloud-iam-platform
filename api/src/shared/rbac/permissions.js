@@ -4,8 +4,9 @@
  * Centralized permission constants for the IAM Security Platform.
  *
  * Naming convention:  resource:action
- *   resource = users, profile, sessions, analytics, audit, defense, metrics, sensitive
- *   action   = list, read, update, delete, manage, view, etc.
+ *   resource = users, profile, sessions, analytics, audit, defense, metrics,
+ *              sensitive, mfa
+ *   action   = list, read, update, delete, manage, view, setup, etc.
  *
  * These are the atomic capabilities that roles map to.
  * Routes consume these via requirePermission() middleware.
@@ -33,6 +34,13 @@ export const PERMISSIONS = Object.freeze({
   PROFILE_UPDATE:      'profile:update',
   SESSIONS_LIST_OWN:   'sessions:list_own',
   SESSIONS_REVOKE_OWN: 'sessions:revoke_own',
+
+  // ─────────────────────────────────────────────
+  // MFA (self-service — any authenticated user)
+  // Added: covers POST /api/v1/mfa/setup and /verify
+  // ─────────────────────────────────────────────
+  MFA_SETUP:           'mfa:setup',
+  MFA_VERIFY:          'mfa:verify',
 
   // ─────────────────────────────────────────────
   // Analytics
