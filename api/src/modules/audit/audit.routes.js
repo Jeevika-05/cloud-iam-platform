@@ -12,6 +12,7 @@ import logger from '../../shared/utils/logger.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { internalAuth } from '../../shared/middleware/internalAuth.js';
 import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
+import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 
 const router = Router();
 
@@ -145,7 +146,7 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
 // ─────────────────────────────────────────────
 // GENERAL EVENTS — Auth required
 // ─────────────────────────────────────────────
-router.get('/events', authenticate, async (req, res) => {
+router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'), async (req, res) => {
   try {
     const {
       event_type,

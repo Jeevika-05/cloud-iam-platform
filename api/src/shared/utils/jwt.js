@@ -32,7 +32,7 @@ import crypto from 'crypto';
 import AppError from './AppError.js';
 import logger from './logger.js';
 import { jwt as jwtConfig } from '../config/index.js';
-import { jwtVerificationFailures } from '../../metrics/metrics.js';
+import { jwtVerificationFailures, jwtTamperDetectedTotal } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // CONSTANTS (all from centralized config)
@@ -67,6 +67,9 @@ const logJwtSecurityEvent = (reason, message, meta = {}) => {
     ...meta,
   });
   jwtVerificationFailures.inc({ reason });
+  if (reason === 'signature_invalid') {
+    jwtTamperDetectedTotal.inc();
+  }
 };
 
 // ─────────────────────────────────────────────

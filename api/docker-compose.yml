@@ -201,10 +201,18 @@ services:
   grafana:
     image: grafana/grafana
     container_name: grafana
+    restart: unless-stopped
     ports:
       - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - backend
+    depends_on:
+      - prometheus
 
   neo4j:
     image: neo4j:5
@@ -219,6 +227,7 @@ services:
       - backend
 volumes:
   postgres_data:
+  grafana_data:
 
 networks:
   backend:

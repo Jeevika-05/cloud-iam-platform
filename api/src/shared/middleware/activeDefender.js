@@ -35,8 +35,10 @@ import crypto         from 'crypto';
 import redisClient    from '../config/redis.js';
 import logger         from '../utils/logger.js';
 import { getClientIp } from '../utils/clientInfo.js';
-import { classifyIp }  from '../utils/ipClassifier.js';
-import { ipBanCounter } from '../../metrics/metrics.js';
+import { 
+  ipBanCounter, strikesRecordedTotal, bansTriggeredTotal, 
+  blockedRequestsTotal, activeBansGauge 
+} from '../../metrics/metrics.js';
 import { activeDefense as activeDefenseConfig } from '../config/index.js';
 import {
   resolveStage,
@@ -176,13 +178,26 @@ async function emitDefenseEvent(ip, action, extraFields, triggeringEvent) {
 export const recordStrike = async (ip, severity = 'MEDIUM', reason = 'security_event', triggeringEvent = {}) => {
   try {
     if (!activeDefenseConfig.enabled) return;
-    if (!ip || isAllowlisted(ip)) return;
+    if (!ip || (!SIMULATION_MODE && isAllowlisted(ip))) return;
 
     const strikeKey = STRIKE_KEY(ip);
 
-    // Sliding window: INCR + reset TTL on each new strike
-    const strikes = await redisClient.incr(strikeKey);
-    await redisClient.expire(strikeKey, STRIKE_WINDOW_TTL);
+    // Sliding window using Redis sorted sets (ZSET)
+    const now = Date.now();
+    const windowStart = now - (STRIKE_WINDOW_TTL * 1000);
+
+    const pipeline = redisClient.pipeline();
+    pipeline.zremrangebyscore(strikeKey, '-inf', windowStart);
+    pipeline.zadd(strikeKey, now, `${now}-${crypto.randomUUID()}`);
+    pipeline.zcard(strikeKey);
+    pipeline.expire(strikeKey, STRIKE_WINDOW_TTL);
+
+    const results = await pipeline.exec();
+    for (const [err] of results) {
+      if (err) throw err;
+    }
+    const strikes = results[2][1];  
+    strikesRecordedTotal.inc({ severity });
 
     logger.debug('STRIKE_RECORDED', {
       ip,
@@ -308,7 +323,7 @@ export const activeDefenseMiddleware = async (req, res, next) => {
   try {
     const ip = getClientIp(req);
 
-    if (isAllowlisted(ip)) return next();
+    if (!SIMULATION_MODE && isAllowlisted(ip)) return next();
 
     const banKey  = BAN_KEY(ip);
     const banData = await redisClient.get(banKey);
@@ -330,6 +345,15 @@ export const activeDefenseMiddleware = async (req, res, next) => {
       banNumber: ban.banNumber,
     });
 
+    blockedRequestsTotal.inc({ reason: ban.reason });
+
+    // Periodically update active bans gauge (approximate)
+    if (Math.random() < 0.1) {
+      redisClient.keys('ban:ip:*').then(keys => {
+        activeBansGauge.set(keys.length);
+      }).catch(() => {});
+    }
+
     // ── Generate a single correlation_id for the ATTACK → DEFENSE pair ───────
     // Use x-correlation-id header if present; otherwise generate fresh UUID.
     const correlationId = req.headers['x-correlation-id'] || crypto.randomUUID();
@@ -345,24 +369,29 @@ export const activeDefenseMiddleware = async (req, res, next) => {
       const atkEndpoint   = req.originalUrl;
       const atkIntel      = await calculateEventIntelligence(correlationId, timestamp, ip, atkEndpoint);
 
+      // In simulation mode the request is NOT actually blocked (next() is called below).
+      // Reflect this factually so Neo4j graph data accurately shows monitored vs blocked.
+      const atkAction = SIMULATION_MODE ? 'MONITORED_REQUEST' : 'BLOCKED_REQUEST';
+      const atkResult = SIMULATION_MODE ? 'ALLOWED'           : 'BLOCKED';
+
       const attackEvent = {
         event_id:        attackEventId,
         correlation_id:  correlationId,
         event_type:      'ATTACK',
         event_priority:  1,              // H1: ATTACK sorts before DEFENSE
         agent_type:      'EXTERNAL',
-        action:          'BLOCKED_REQUEST',
+        action:          atkAction,
         source_ip:       ip,
         ip_type,
         user_agent,
         target_type:     'API',
         target_endpoint: req.originalUrl,
-        result:          'BLOCKED',
+        result:          atkResult,
         severity:        'MEDIUM',
         timestamp,
         mode,
         ...atkIntel,
-        stage:           resolveStage('ATTACK', 'BLOCKED_REQUEST'),
+        stage:           resolveStage('ATTACK', atkAction),
         metadata: {
           route:  req.originalUrl,
           method: req.method,
@@ -373,7 +402,7 @@ export const activeDefenseMiddleware = async (req, res, next) => {
       logger.info('ATTACK_EVENT_QUEUED', {
         event_id:       attackEventId,
         correlation_id: correlationId,
-        action:         'BLOCKED_REQUEST',
+        action:         atkAction,
         ip,
       });
 
@@ -435,7 +464,9 @@ export const getBanMeta = async (ip) => {
 /** Get current strike count for an IP. */
 export const getStrikeCount = async (ip) => {
   try {
-    const count = await redisClient.get(STRIKE_KEY(ip));
+    const now = Date.now();
+    const windowStart = now - (STRIKE_WINDOW_TTL * 1000);
+    const count = await redisClient.zcount(STRIKE_KEY(ip), windowStart, '+inf');
     return parseInt(count, 10) || 0;
   } catch (err) {
     logger.error('STRIKE_COUNT_FETCH_FAILED', { ip, error: err.message });

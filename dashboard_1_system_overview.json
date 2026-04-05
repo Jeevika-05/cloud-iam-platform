@@ -1,0 +1,41 @@
+{
+  "title": "IAM Security - System Overview",
+  "tags": ["iam", "system"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "title": "Events Processed per Second",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "rate(security_events_processed_total[1m])", "refId": "A" }]
+    },
+    {
+      "title": "Event Processing Latency (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(events_processing_latency_ms_bucket[5m])) by (le))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "title": "DLQ Size",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [{ "expr": "dlq_size", "refId": "A", "legendFormat": "{{stream}}" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } }
+    },
+    {
+      "title": "Neo4j Write Failure Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [{ "expr": "rate(neo4j_write_total{status='error'}[5m])", "refId": "A" }]
+    },
+    {
+      "title": "Redis Stream Lag",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [{ "expr": "redis_stream_lag", "refId": "A", "legendFormat": "{{stream}} - {{group}}" }]
+    }
+  ]
+}

@@ -31,10 +31,11 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ─────────────────────────────────────────────
-// REQUEST ID (for tracing)
+// CORRELATION ID (for tracing and neo4j generation)
 // ─────────────────────────────────────────────
 app.use((req, res, next) => {
-  req.id = randomUUID();
+  req.correlationId = req.headers['x-correlation-id'] || randomUUID();
+  res.setHeader('x-correlation-id', req.correlationId);
   next();
 });
 
@@ -92,6 +93,37 @@ app.use(
 );
 
 // ─────────────────────────────────────────────
+// SAFE PATHS BYPASS (Health & Metrics)
+// ─────────────────────────────────────────────
+const safePaths = ['/metrics', '/health'];
+
+app.use((req, res, next) => {
+  if (safePaths.includes(req.path)) {
+    if (req.method !== 'GET') {
+      return res.status(405).json({ error: 'Method Not Allowed' });
+    }
+  }
+  next();
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.send(await register.metrics());
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// ─────────────────────────────────────────────
 // ACTIVE DEFENSE — Ban enforcement layer (BEFORE rate limiter)
 // When ON:  banned IPs rejected at edge → zero processing cost
 // When OFF: system degrades to stateless per-request rejection
@@ -119,25 +151,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─────────────────────────────────────────────
-// HEALTH CHECK & METRICS
-// ─────────────────────────────────────────────
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
-});
-
-app.get('/metrics', async (req, res) => {
-  try {
-    res.set('Content-Type', register.contentType);
-    res.send(await register.metrics());
-  } catch (err) {
-    res.status(500).send(err.message);
-  }
-});
 
 // ─────────────────────────────────────────────
 // ROUTES

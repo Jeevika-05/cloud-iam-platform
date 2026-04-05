@@ -63,7 +63,7 @@ model Session {
 }
 
 model AuditLog {
-  id String @id @default(uuid())
+  id       String @id @default(uuid())
   event_id String
 
   userId String?
@@ -79,13 +79,12 @@ model AuditLog {
 
   createdAt DateTime @default(now())
 
+  @@unique([event_id])
   @@index([userId])
 }
 
 // ─────────────────────────────────────────────
 // RBAC Role Enum
-// SECURITY_ANALYST replaces ANALYST.
-// Run the migration SQL to rename existing rows.
 // ─────────────────────────────────────────────
 enum Role {
   USER

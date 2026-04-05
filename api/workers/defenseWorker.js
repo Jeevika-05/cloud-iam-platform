@@ -56,6 +56,11 @@ import Redis   from 'ioredis';
 import winston from 'winston';
 import { redis as redisConfig } from '../src/shared/config/index.js';
 import { recordStrike }         from '../src/shared/middleware/activeDefender.js';
+import { 
+  dlqSize, retryAttemptsTotal, redisStreamLag, eventsInflightGauge,
+  workerAliveGauge, redisConnectionStatus, processingBacklogSize,
+  workerLastProcessedTimestamp 
+} from '../src/metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // Logger
@@ -166,6 +171,7 @@ async function sendToDLQ(messageId, rawData, reason, context = {}) {
       'reason',      reason,
       'failed_at',   new Date().toISOString()
     );
+    dlqSize.inc({ stream: DEFENSE_DLQ });
     logger.error('DEFENSE_SENT_TO_DLQ', { messageId, reason, ...context });
   } catch (dlqErr) {
     logger.error('DEFENSE_DLQ_WRITE_FAILED', { messageId, error: dlqErr.message });
@@ -193,6 +199,7 @@ async function sendToDLQ(messageId, rawData, reason, context = {}) {
 //     → dedup key absent → retried correctly.
 // ─────────────────────────────────────────────────────────────────────────────
 async function processDefenseMessage(messageId, keyValues) {
+  eventsInflightGauge.inc({ worker: 'defenseWorker' });
   // ── 1. Extract data field from flat ioredis array ─────────────────────────
   let rawData = null;
   for (let i = 0; i < keyValues.length; i += 2) {
@@ -201,6 +208,7 @@ async function processDefenseMessage(messageId, keyValues) {
 
   if (!rawData) {
     logger.warn('DEFENSE_MISSING_DATA', { messageId });
+    eventsInflightGauge.dec({ worker: 'defenseWorker' });
     return true; // ACK — permanently malformed, no value in retrying
   }
 
@@ -210,6 +218,7 @@ async function processDefenseMessage(messageId, keyValues) {
     task = JSON.parse(rawData);
   } catch {
     await sendToDLQ(messageId, rawData, 'JSON_PARSE_ERROR');
+    eventsInflightGauge.dec({ worker: 'defenseWorker' });
     return true;
   }
 
@@ -218,6 +227,7 @@ async function processDefenseMessage(messageId, keyValues) {
   if (!source_ip || !severity || !dedup_key) {
     logger.warn('DEFENSE_INVALID_PAYLOAD', { messageId, task });
     await sendToDLQ(messageId, rawData, 'INVALID_PAYLOAD_MISSING_FIELDS');
+    eventsInflightGauge.dec({ worker: 'defenseWorker' });
     return true;
   }
 
@@ -240,6 +250,7 @@ async function processDefenseMessage(messageId, keyValues) {
       correlation_id: correlation_id ?? null,
       event_id:       event_id       ?? null,
     });
+    eventsInflightGauge.dec({ worker: 'defenseWorker' });
     return true;
   }
 
@@ -261,6 +272,8 @@ async function processDefenseMessage(messageId, keyValues) {
       event_id:       event_id       ?? null,
     });
 
+    workerLastProcessedTimestamp.set({ worker: 'defenseWorker' }, Date.now());
+    eventsInflightGauge.dec({ worker: 'defenseWorker' });
     return true; // ACK
 
   } catch (err) {
@@ -281,6 +294,7 @@ async function processDefenseMessage(messageId, keyValues) {
       logger.error('DEFENSE_DEDUP_KEY_DEL_FAILED', { dedup_key, error: delErr.message });
     }
 
+    eventsInflightGauge.dec({ worker: 'defenseWorker' });
     return false; // Leave in PEL — retry on next reclaim pass
   }
 }
@@ -308,6 +322,7 @@ async function reclaimAndRetry() {
     if (claimed.length === 0) return;
 
     logger.info('DEFENSE_RECLAIM_PASS', { count: claimed.length });
+    retryAttemptsTotal.inc({ stream: DEFENSE_STREAM }, claimed.length);
 
     for (const [msgId, keyValues] of claimed) {
       // Check delivery count — escalate to DLQ if beyond MAX_RETRIES
@@ -358,8 +373,33 @@ async function run() {
     block_ms:  BLOCK_MS,
   });
 
+  let iterCount = 0;
+  workerAliveGauge.set({ worker: 'defenseWorker' }, 1);
+
   while (!shuttingDown) {
     try {
+      iterCount++;
+      if (iterCount % 10 === 0) {
+        workerAliveGauge.set({ worker: 'defenseWorker' }, 1);
+        redisConnectionStatus.set(redisClient.status === 'ready' ? 1 : 0);
+        // Track stream lag periodically
+        const info = await redisClient.xinfo('GROUPS', DEFENSE_STREAM).catch(() => null);
+        if (info) {
+          const groupInfo = info.find(g => Array.isArray(g) ? g[1] === GROUP_NAME : g.name === GROUP_NAME);
+          if (groupInfo) {
+            let lagVal = 0;
+            if (Array.isArray(groupInfo)) {
+              const lagMatch = groupInfo.indexOf('lag');
+              if (lagMatch !== -1) lagVal = groupInfo[lagMatch + 1];
+            } else {
+              lagVal = groupInfo.lag;
+            }
+            redisStreamLag.set({ stream: DEFENSE_STREAM, group: GROUP_NAME }, lagVal ?? 0);
+            processingBacklogSize.set({ stream: DEFENSE_STREAM }, lagVal ?? 0);
+          }
+        }
+      }
+
       // TASK 1: XREADGROUP — reliable, group-aware stream consumption
       const response = await redisClient.xreadgroup(
         'GROUP', GROUP_NAME, CONSUMER_NAME,

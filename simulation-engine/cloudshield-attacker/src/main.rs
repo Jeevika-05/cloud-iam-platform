@@ -110,7 +110,10 @@ async fn main() {
     let mut reports: Vec<serde_json::Value> = Vec::new();
     let mut graph_events: Vec<GraphEvent> = Vec::new();
     let mut any_critical = false;
-    let execution_correlation_id = uuid::Uuid::new_v4().to_string();
+    // run_id groups the entire simulation run at the report level.
+    // Each individual attack gets its OWN correlation_id so that
+    // Neo4j chains are independent and attack path analysis is meaningful.
+    let run_id = uuid::Uuid::new_v4().to_string();
 
     // ═══════════════════════════════════════════════
     //  ATK-01: Token Race Condition
@@ -127,7 +130,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::token_race::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk01_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::token_race::run(&client, &email, &password, &user_id, &atk01_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -169,7 +173,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::mfa_replay::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk02_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::mfa_replay::run(&client, &email, &password, &user_id, &atk02_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -208,7 +213,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::idor::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk03_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::idor::run(&client, &email, &password, &user_id, &atk03_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -246,7 +252,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::jwt_tamper::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk04_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::jwt_tamper::run(&client, &email, &password, &user_id, &atk04_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -284,7 +291,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::session_reuse::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk05_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::session_reuse::run(&client, &email, &password, &user_id, &atk05_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -323,7 +331,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::password_brute::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk06_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::password_brute::run(&client, &email, &password, &user_id, &atk06_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -361,7 +370,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::session_invalidation::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk07_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::session_invalidation::run(&client, &email, &password, &user_id, &atk07_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -399,7 +409,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::rate_flood::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk08_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::rate_flood::run(&client, &email, &password, &user_id, &atk08_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -437,7 +448,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::csrf::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk09_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::csrf::run(&client, &email, &password, &user_id, &atk09_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -475,7 +487,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::mass_assignment::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk10_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::mass_assignment::run(&client, &email, &password, &user_id, &atk10_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -513,7 +526,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::access_token_abuse::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk11_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::access_token_abuse::run(&client, &email, &password, &user_id, &atk11_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -555,7 +569,8 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        match attacks::mfa_distributed::run(&client, &email, &password, &user_id, &execution_correlation_id).await {
+        let atk12_correlation_id = uuid::Uuid::new_v4().to_string();
+        match attacks::mfa_distributed::run(&client, &email, &password, &user_id, &atk12_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -585,13 +600,16 @@ async fn main() {
         "_metadata": {
             "source": "cloudshield-attacker",
             "scope": "attack_engine_output_only",
-            "description": "Contains ATTACK events and verdicts from the Rust simulation engine. DEFENSE events (STRIKE_RECORDED, IP_BANNED) are stored in the backend AuditLog database and available via GET /api/v1/audit/events/defense. Use scripts/neo4j_ingest.js to merge both for Neo4j ingestion.",
-            "version": "2.0.0"
+            "description": "Contains ATTACK events and verdicts from the Rust simulation engine. Each attack type has its own correlation_id for independent chain analysis. run_id groups the entire simulation run. DEFENSE events (STRIKE_RECORDED, IP_BANNED) are stored in the backend AuditLog database and available via GET /api/v1/audit/events/defense. Use scripts/neo4j_ingest.js to merge both for Neo4j ingestion.",
+            "version": "2.1.0"
         },
         "engine": "cloudshield-attacker",
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "attack_mode": format!("{:?}", mode),
         "isolation": "per-attack-identity",
+        // run_id groups all attacks from this execution run for report-level correlation.
+        // It is NOT used as a graph correlation_id — each attack has its own.
+        "run_id": run_id,
         "total_attacks": reports.len(),
         "results": reports,
         "graph_events": graph_events

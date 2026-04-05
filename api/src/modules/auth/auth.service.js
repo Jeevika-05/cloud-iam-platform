@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import jwtLib from 'jsonwebtoken';
 import prisma from '../../shared/config/database.js';
+import redisClient from '../../shared/config/redis.js';
 import config from '../../shared/config/index.js';
 import AppError from '../../shared/utils/AppError.js';
 import logger from '../../shared/utils/logger.js';
@@ -14,7 +15,10 @@ import {
 } from '../../shared/utils/jwt.js';
 import { logSecurityEvent } from './audit.service.js';
 import { SECURITY_CONFIG } from '../../shared/config/security.js';
-import { accountLockCounter, sessionSecurityCounter } from '../../metrics/metrics.js';
+import { 
+  accountLockCounter, sessionSecurityCounter, 
+  loginFailuresTotal, mfaFailuresTotal, distributedMfaLockTotal 
+} from '../../metrics/metrics.js';
 
 const MAX_SESSIONS = config.security.maxSessions;
 
@@ -63,6 +67,7 @@ export const login = async ({ email, password, ipAddress, userAgent, correlation
   // Prevent user enumeration — dummy hash burns same CPU time
   if (!user) {
     await dummyVerify(password);
+    loginFailuresTotal.inc({ status: 'INVALID_CREDENTIALS' });
     logger.warn('LOGIN_FAILED', { email: normalizedEmail, ip: ipAddress });
     await logSecurityEvent({ action: 'LOGIN_FAILED', status: 'FAILURE', ip: ipAddress, correlationId });
     throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
@@ -81,6 +86,7 @@ export const login = async ({ email, password, ipAddress, userAgent, correlation
   const isMatch = await verifyPassword(user.password, password);
 
   if (!isMatch) {
+    loginFailuresTotal.inc({ status: 'INVALID_CREDENTIALS' });
     // Increment failedLoginAttempts
     const attempts = (user.failedLoginAttempts || 0) + 1;
     let lockUntil = user.lockUntil;
@@ -206,7 +212,26 @@ export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent, 
   const decoded = verifyTempToken(tempToken);
 
   const user = await prisma.user.findUnique({ where: { id: decoded.sub } });
-  
+
+  // W-5 FIX: Check per-user MFA lockout BEFORE attempting verification.
+  // This is the enforcement gate for the distributed brute-force counter.
+  try {
+    const lockKey  = `mfa:locked:${decoded.sub}`;
+    const isLocked = await redisClient.get(lockKey);
+    if (isLocked) {
+      logger.warn('MFA_USER_LOCK_ENFORCED', { userId: decoded.sub, ip: ipAddress });
+      throw new AppError(
+        'MFA temporarily locked due to too many failed attempts. Please try again later.',
+        429,
+        'MFA_RATE_LIMITED'
+      );
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err; // re-throw our own AppError
+    // Redis failure: fail open (do not block legitimate user)
+    logger.error('MFA_LOCK_CHECK_REDIS_ERROR', { error: err.message, userId: decoded.sub });
+  }
+
   if (!user || (user.lockUntil && user.lockUntil > new Date()) || !user.totpEnabled) {
     throw new AppError('Invalid MFA login attempt', 403, 'FORBIDDEN');
   }
@@ -255,13 +280,61 @@ export const validateMfaLogin = async ({ code, tempToken, ipAddress, userAgent, 
   });
 
   if (!verified) {
+    mfaFailuresTotal.inc();
+    // W-5 FIX: Per-user MFA attempt counter — defeats distributed brute force.
+    //
+    // Problem: IP-only rate limiting fails when a distributed attack sends 1 req
+    // from each of N IPs. Each IP stays under the per-IP limit, but the target
+    // user accumulates N invalid MFA attempts.
+    //
+    // Solution: INCR mfa:attempts:<userId> with a 10-minute sliding window.
+    // After MFA_MAX_ATTEMPTS failures from ANY IPs, the user's MFA is locked
+    // for MFA_LOCK_SECONDS. The lock key is separate so it survives window reset.
+    const MFA_WINDOW_SECONDS = 600;   // 10-minute attempt window
+    const MFA_MAX_ATTEMPTS   = 10;    // failures allowed before lockout
+    const MFA_LOCK_SECONDS   = 600;   // 10-minute lockout duration
+
+    const attemptsKey = `mfa:attempts:${user.id}`;
+    const lockKey     = `mfa:locked:${user.id}`;
+
+    try {
+      const attempts = await redisClient.incr(attemptsKey);
+      // Set TTL only on first increment (EXPIRE is a no-op on existing keys
+      // when using EXPIRE without GT, so manually only set on first write)
+      if (attempts === 1) {
+        await redisClient.expire(attemptsKey, MFA_WINDOW_SECONDS);
+      }
+      if (attempts >= MFA_MAX_ATTEMPTS) {
+        if (attempts === MFA_MAX_ATTEMPTS) {
+          distributedMfaLockTotal.inc();
+        }
+        await redisClient.set(lockKey, '1', 'EX', MFA_LOCK_SECONDS, 'NX');
+        logger.warn('MFA_USER_LOCKED_DISTRIBUTED_BRUTE', {
+          userId:   user.id,
+          attempts,
+          ip:       ipAddress,
+        });
+      }
+    } catch (redisErr) {
+      // Redis failure must not block the auth path — fail open for the counter.
+      logger.error('MFA_RATE_LIMIT_REDIS_ERROR', { error: redisErr.message, userId: user.id });
+    }
+
     await logSecurityEvent({ userId: user.id, action: 'LOGIN_FAILED', status: 'MFA_FAILED', ip: ipAddress, userAgent, correlationId });
     throw new AppError('Invalid MFA code', 400, 'INVALID_MFA_CODE');
   }
 
   const { password: _, ...safeUser } = user;
   const tokens = await issueTokens(safeUser, { ipAddress, userAgent, mfaVerified: true });
-  
+
+  // W-5: Reset per-user MFA attempt counters on successful login.
+  // Ensures a legitimate user is not penalised by a prior attack window.
+  try {
+    await redisClient.del(`mfa:attempts:${user.id}`, `mfa:locked:${user.id}`);
+  } catch (redisErr) {
+    logger.warn('MFA_COUNTER_RESET_FAILED', { error: redisErr.message, userId: user.id });
+  }
+
   await logSecurityEvent({ userId: user.id, action: 'LOGIN_SUCCESS', status: 'MFA_SUCCESS', ip: ipAddress, userAgent, correlationId, sessionId: tokens.jti });
   
   return { user: safeUser, ...tokens };

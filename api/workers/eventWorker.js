@@ -32,7 +32,13 @@ import Redis          from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import winston        from 'winston';
 import crypto         from 'crypto';
-import { streamConsumerLag } from '../src/metrics/metrics.js';
+import { 
+  streamConsumerLag, securityEventsProcessedTotal, eventsProcessingLatencyMs,
+  neo4jWriteTotal, neo4jWriteLatencyMs,
+  neo4jFailedEventsQueueSize, dlqSize, retryAttemptsTotal, redisStreamLag,
+  eventsInflightGauge, processingBacklogSize, workerLastProcessedTimestamp,
+  workerAliveGauge, redisConnectionStatus, neo4jConnectionStatus
+} from '../src/metrics/metrics.js';
 import { RiskEngine }        from './riskEngine.js';
 import { redis as redisConfig } from '../src/shared/config/index.js';
 import { mergeEventToGraph, closeNeo4jDriver } from '../src/shared/db/neo4j.js';
@@ -160,6 +166,12 @@ const isValidUUID = (val) => typeof val === 'string' && UUID_RE.test(val);
 const isSystemEvent = (ev) =>
   ev.event_type === 'DEFENSE' || ev.agent_type === 'SYSTEM';
 
+// C-2 FIX: SECURITY events that preceded an ATTACK event are tagged
+// _skip_risk_engine:true by audit.service.js. Skip risk scoring for them
+// to prevent 2x score inflation from the same hostile action.
+const shouldSkipRiskEngine = (ev) =>
+  isSystemEvent(ev) || ev._skip_risk_engine === true;
+
 // Structured log context — every log line includes these fields for tracing
 function logCtx(event) {
   return {
@@ -233,6 +245,20 @@ async function saveToPostgres(eventData) {
 // ─────────────────────────────────────────────────────────────────────────────
 // NEO4J EMISSION
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// C-3 FIX: Neo4j write failures are no longer silently swallowed.
+//
+// Strategy:
+//   1. On failure, write the event_id to the sorted set `neo4j:failed_events`
+//      (score = epoch ms) so a repair job can detect the gap without scanning.
+//   2. Re-throw the error so the caller does NOT mark the event as processed.
+//      The PEL retains it → XAUTOCLAIM will redeliver for up to MAX_RETRIES.
+//      After MAX_RETRIES the event goes to DLQ (handled in processMessage error block).
+//
+// Trade-off: Neo4j is documented as a secondary read-optimised sink.
+//   Retrying here risks duplicate MERGE calls, but MERGE is fully idempotent
+//   (unique constraint on event_id) so duplicates are safe.
+// ─────────────────────────────────────────────────────────────────────────────
 async function saveToNeo4j(eventData) {
   logger.debug('GRAPH_EVENT', {
     correlation_id:       eventData.correlation_id,
@@ -241,13 +267,43 @@ async function saveToNeo4j(eventData) {
     parent_event_id:      eventData.parent_event_id,
     event_id:             eventData.event_id,
   });
-  
+
+  const writeStart = Date.now();
   try {
     logger.info('NEO4J_WRITE_START', { event_id: eventData.event_id });
     await mergeEventToGraph(eventData);
+    neo4jWriteLatencyMs.observe(Date.now() - writeStart);
+    neo4jWriteTotal.inc({
+      action: eventData.action || 'UNKNOWN',
+      event_type: eventData.event_type || 'UNKNOWN',
+      severity: eventData.severity || 'LOW',
+      status: 'success'
+    });
     logger.info('NEO4J_WRITE_SUCCESS', { event_id: eventData.event_id });
   } catch (err) {
+    neo4jWriteTotal.inc({
+      action: eventData.action || 'UNKNOWN',
+      event_type: eventData.event_type || 'UNKNOWN',
+      severity: eventData.severity || 'LOW',
+      status: 'error'
+    });
     logger.error('NEO4J_WRITE_ERROR', { event_id: eventData.event_id, error: err.message });
+
+    // C-3: Write event_id to repair set (score = ms, enables time-range repair queries)
+    try {
+      await redisClient.zadd(
+        'neo4j:failed_events',
+        Date.now(),
+        eventData.event_id
+      );
+      neo4jFailedEventsQueueSize.inc();
+      logger.warn('NEO4J_REPAIR_QUEUED', { event_id: eventData.event_id });
+    } catch (repairErr) {
+      logger.error('NEO4J_REPAIR_QUEUE_FAILED', { event_id: eventData.event_id, error: repairErr.message });
+    }
+
+    // Re-throw so caller does NOT mark event as processed — PEL will redeliver.
+    throw err;
   }
 }
 
@@ -422,6 +478,16 @@ async function processMessage(messageId, keyValues) {
       // FIX 1: Safe state transition — write completion proof BEFORE dropping mutex
       await redisClient.set(processedKey, '1', 'EX', 3600);
       await redisClient.del(processingKey);
+
+      securityEventsProcessedTotal.inc({
+        action: eventData.action || 'UNKNOWN',
+        event_type: eventData.event_type || 'UNKNOWN',
+        severity: eventData.severity || 'LOW',
+        status: 'success'
+      });
+      const processLatency = Date.now() - new Date(eventData.timestamp).getTime();
+      eventsProcessingLatencyMs.observe(processLatency > 0 ? processLatency : 0);
+
       return true;
     }
 
@@ -430,31 +496,43 @@ async function processMessage(messageId, keyValues) {
 
     // ── 7. Risk Engine ─────────────────────────────────────────────────────────
     const riskStart = Date.now();
-    try {
-      // FIX 2: Heartbeat TTL before compute-intensive risk pipeline
-      await redisClient.expire(processingKey, 300);
 
-      const riskData = await riskEngine.processEvent(eventData);
-      if (riskData) Object.assign(eventData, riskData);
-      eventData.risk_score = eventData.risk_score ?? 0;
-      eventData.risk_level = eventData.risk_level ?? 'LOW';
+    // C-2 FIX: Skip risk engine for events tagged by audit.service as already
+    // having a companion ATTACK event scored. Also skips SYSTEM/DEFENSE events.
+    if (shouldSkipRiskEngine(eventData)) {
+      eventData.risk_score = eventData.risk_score ?? null;
+      eventData.risk_level = eventData.risk_level ?? null;
+      logger.debug('RISK_ENGINE_SKIPPED', {
+        ...logCtx(eventData),
+        reason: eventData._skip_risk_engine ? 'companion_attack_scored' : 'system_event',
+      });
+    } else {
+      try {
+        // FIX 2: Heartbeat TTL before compute-intensive risk pipeline
+        await redisClient.expire(processingKey, 300);
 
-      logger.info('RISK_ENGINE_COMPLETED', {
-        ...logCtx(eventData),
-        risk_score:  eventData.risk_score,
-        risk_level:  eventData.risk_level,
-        risk_delta:  eventData.risk_delta,
-        duration_ms: Date.now() - riskStart,
-      });
-    } catch (err) {
-      logger.error('RISK_ENGINE_ERROR', {
-        error:       err.message,
-        duration_ms: Date.now() - riskStart,
-        ...logCtx(eventData),
-      });
-      eventData.risk_score = 0;
-      eventData.risk_level = 'UNKNOWN';
-      eventData.risk_error = err.message;
+        const riskData = await riskEngine.processEvent(eventData);
+        if (riskData) Object.assign(eventData, riskData);
+        eventData.risk_score = eventData.risk_score ?? 0;
+        eventData.risk_level = eventData.risk_level ?? 'LOW';
+
+        logger.info('RISK_ENGINE_COMPLETED', {
+          ...logCtx(eventData),
+          risk_score:  eventData.risk_score,
+          risk_level:  eventData.risk_level,
+          risk_delta:  eventData.risk_delta,
+          duration_ms: Date.now() - riskStart,
+        });
+      } catch (err) {
+        logger.error('RISK_ENGINE_ERROR', {
+          error:       err.message,
+          duration_ms: Date.now() - riskStart,
+          ...logCtx(eventData),
+        });
+        eventData.risk_score = 0;
+        eventData.risk_level = 'UNKNOWN';
+        eventData.risk_error = err.message;
+      }
     }
 
     // ── 8. Persist ─────────────────────────────────────────────────────────────
@@ -481,12 +559,25 @@ async function processMessage(messageId, keyValues) {
     // FIX 1: Safe state transition — write completion proof BEFORE dropping mutex
     await redisClient.set(processedKey, '1', 'EX', 3600);
     await redisClient.del(processingKey);
+
+    securityEventsProcessedTotal.inc({
+      action: eventData.action || 'UNKNOWN',
+      event_type: eventData.event_type || 'UNKNOWN',
+      severity: eventData.severity || 'LOW',
+      status: 'success'
+    });
+    const processLatency = Date.now() - new Date(eventData.timestamp).getTime();
+    eventsProcessingLatencyMs.observe({ worker: 'eventWorker' }, processLatency > 0 ? processLatency : 0);
+    workerLastProcessedTimestamp.set({ worker: 'eventWorker' }, Date.now());
+
+    eventsInflightGauge.dec({ worker: 'eventWorker' });
     return true;
   } catch (err) {
     // BUG FIX 3: Failing without clearing the lock results in silent event loss!
     // The retry via XAUTOCLAIM would see the NX lock still held and skip/ACK it.
     // By clearing processingKey, the next worker to reclaim gets to try again.
     await redisClient.del(processingKey).catch(() => {});
+    eventsInflightGauge.dec({ worker: 'eventWorker' });
     throw err;
   }
 }
@@ -514,6 +605,7 @@ async function reclaimAndRetry() {
     if (claimed.length === 0) return;
 
     logger.info('RECLAIM_PASS', { count: claimed.length });
+    retryAttemptsTotal.inc({ stream: STREAM_KEY }, claimed.length);
 
     for (const [msgId, keyValues] of claimed) {
       // Check delivery count via XPENDING range scan
@@ -556,8 +648,33 @@ async function reclaimAndRetry() {
 async function processStream() {
   logger.info('WORKER_STARTED', { consumer: CONSUMER_NAME, stream: STREAM_KEY });
 
+  let iterCount = 0;
+  workerAliveGauge.set({ worker: 'eventWorker' }, 1);
+
   while (!shuttingDown) {
     try {
+      iterCount++;
+      if (iterCount % 10 === 0) {
+        workerAliveGauge.set({ worker: 'eventWorker' }, 1);
+        redisConnectionStatus.set(redisClient.status === 'ready' ? 1 : 0);
+        // Track stream lag periodically
+        const info = await redisClient.xinfo('GROUPS', STREAM_KEY).catch(() => null);
+        if (info) {
+          const groupInfo = info.find(g => Array.isArray(g) ? g[1] === GROUP_NAME : g.name === GROUP_NAME);
+          if (groupInfo) {
+            let lagVal = 0;
+            if (Array.isArray(groupInfo)) {
+              const lagMatch = groupInfo.indexOf('lag');
+              if (lagMatch !== -1) lagVal = groupInfo[lagMatch + 1];
+            } else {
+              lagVal = groupInfo.lag;
+            }
+            redisStreamLag.set({ stream: STREAM_KEY, group: GROUP_NAME }, lagVal ?? 0);
+            processingBacklogSize.set({ stream: STREAM_KEY }, lagVal ?? 0);
+          }
+        }
+      }
+
       const response = await redisClient.xreadgroup(
         'GROUP', GROUP_NAME, CONSUMER_NAME,
         'COUNT', 50,

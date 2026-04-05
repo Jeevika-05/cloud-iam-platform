@@ -40,7 +40,7 @@ impl ApiClient {
         let mut headers = HeaderMap::new();
         if let (Some(ip), Some(agent)) = (attacker_ip, attacker_agent) {
             if let (Ok(h_ip), Ok(h_agent)) = (ip.parse::<HeaderValue>(), agent.parse::<HeaderValue>()) {
-                headers.insert("X-Forwarded-For", h_ip);
+                headers.insert("X-Simulated-IP", h_ip);
                 headers.insert("User-Agent", h_agent);
             }
         }

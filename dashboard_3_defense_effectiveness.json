@@ -1,0 +1,33 @@
+{
+  "title": "IAM Security - Defense Effectiveness",
+  "tags": ["iam", "defense"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "title": "IP Strikes Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(strikes_recorded_total[5m])) by (severity)", "refId": "A", "legendFormat": "{{severity}}" }]
+    },
+    {
+      "title": "Bans Triggered Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(rate(bans_triggered_total[5m])) by (severity)", "refId": "A", "legendFormat": "{{severity}}" }]
+    },
+    {
+      "title": "Active IP Bans Gauge",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "active_bans_gauge", "refId": "A" }]
+    },
+    {
+      "title": "Blocked Malicious Requests Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{ "expr": "sum(rate(blocked_requests_total[5m])) by (reason)", "refId": "A", "legendFormat": "{{reason}}" }]
+    }
+  ]
+}

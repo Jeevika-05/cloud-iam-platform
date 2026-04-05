@@ -1,9 +1,9 @@
 import logger from '../../shared/utils/logger.js';
 import crypto from 'crypto';
-import { recordStrike } from '../../shared/middleware/activeDefender.js';
+
 import redisClient from '../../shared/config/redis.js';
 import { classifyIp } from '../../shared/utils/ipClassifier.js';
-import { securityEventSeverityCounter } from '../../metrics/metrics.js';
+import { securityEventSeverityCounter, securityEventsIngestedTotal } from '../../metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // SEQUENCE HELPERS (Removed: Centralized in eventWorker.js)
@@ -19,7 +19,9 @@ import { securityEventSeverityCounter } from '../../metrics/metrics.js';
  */
 export const checkDuplicateEvent = async (correlationId, eventSignature) => {
   const key = `dedup:${correlationId}:${eventSignature}`;
-  const acquired = await redisClient.set(key, '1', 'EX', 2, 'NX');
+  // W-4 FIX: 30s window (was 2s). Catches slow brute-force (1 req/3s) while
+  // still allowing retried legitimate events through after a network hiccup.
+  const acquired = await redisClient.set(key, '1', 'EX', 30, 'NX');
   return acquired === null; // true if it ALREADY existed (i.e. is duplicate)
 };
 
@@ -153,6 +155,7 @@ const emitAttackEvent = async ({ correlationId, action, result, sourceIp, ipType
     JSON.stringify(attackEvent)
   );
 
+  securityEventsIngestedTotal.inc({ event_type: 'ATTACK', action: action, source: 'audit_service' });
   logger.info('ATTACK_EVENT_QUEUED', { action, source_ip: sourceIp, event_id: eventId });
   return eventId;
 };
@@ -191,14 +194,8 @@ export const logSecurityEvent = async (payload) => {
     return;
   }
 
-  const severity = inferSeverity(resolvedStatus);
-  // triggeringEvent carries ONLY correlation_id — no event_group_id
-  const triggeringEvent = { correlation_id: correlationId };
-  if (severity && resolvedIp && resolvedEventType !== 'DEFENSE') {
-    recordStrike(resolvedIp, severity, `${action}:${resolvedStatus}`, triggeringEvent).catch((err) => {
-      logger.error('RECORD_STRIKE_FAILED', { error: err.message, ip: resolvedIp });
-    });
-  }
+  // Direct recordStrike call removed to prevent double-strikes
+  // Strikes are now exclusively handled asynchronously via eventWorker -> riskEngine -> defenseWorker
 
   const ipType = classifyIp(resolvedIp, userAgent);
   const timestamp = payload.timestamp || mergedMeta?.timestamp || new Date().toISOString();
@@ -208,8 +205,9 @@ export const logSecurityEvent = async (payload) => {
   // Only for non-DEFENSE, non-ATTACK events whose action is in the attack set.
   // This inserts ATTACK (seq=N) → original event (seq=N+1) on the same correlation_id.
   const isAttackAction = ATTACK_ACTIONS.has(action) && resolvedEventType !== 'DEFENSE' && resolvedEventType !== 'ATTACK';
+  let attackEventEmitted = false;
   if (isAttackAction) {
-    await emitAttackEvent({
+    const emittedId = await emitAttackEvent({
       correlationId,
       action,
       result: resolvedStatus,
@@ -220,6 +218,10 @@ export const logSecurityEvent = async (payload) => {
       timestamp,
       targetEndpoint: mergedMeta?.path || 'internal',
     });
+    // Track whether an ATTACK event was successfully emitted (not deduped).
+    // The downstream SECURITY event must NOT be risk-scored again to avoid
+    // double-counting (C-2 fix). We signal this via _skip_risk_engine.
+    attackEventEmitted = emittedId !== null;
   }
 
   // 🕸️ GRAPH_EVENT: Emit normalized event for Neo4j IMMEDIATELY
@@ -269,6 +271,11 @@ export const logSecurityEvent = async (payload) => {
     ...(intelligence.correlation_reason && { correlation_reason: intelligence.correlation_reason }),
     ...(stage           !== null && { stage }),
     ...(attack_category !== null && { attack_category }),
+    // C-2 FIX: If we emitted a companion ATTACK event for this action, mark
+    // this SECURITY event so the eventWorker skips risk scoring for it.
+    // The ATTACK event already went through full risk engine evaluation.
+    // Without this flag, both events score the same action → 2x risk inflation.
+    ...(attackEventEmitted && { _skip_risk_engine: true }),
   };
 
   logger.info('GRAPH_EVENT', graphEvent);
@@ -285,6 +292,8 @@ export const logSecurityEvent = async (payload) => {
       'data',
       JSON.stringify(graphEvent)
     );
+
+    securityEventsIngestedTotal.inc({ event_type: graphEvent.event_type, action: action, source: 'audit_service' });
 
     if (resolvedEventType === 'DEFENSE') {
       logger.info('DEFENSE_EVENT_QUEUED', { action, source_ip: resolvedIp, status: resolvedStatus });

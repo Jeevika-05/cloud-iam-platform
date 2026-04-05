@@ -1,0 +1,39 @@
+{
+  "title": "IAM Security - Security Analytics",
+  "tags": ["iam", "security"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "title": "Attacks by Type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(security_events_ingested_total[5m])) by (action)", "refId": "A", "legendFormat": "{{action}}" }]
+    },
+    {
+      "title": "Risk Score Distribution (p90)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.90, sum(rate(risk_score_distribution_bucket[5m])) by (le))", "refId": "A" }]
+    },
+    {
+      "title": "High-Risk Events Generated",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [{ "expr": "sum(rate(high_risk_events_total[5m])) by (risk_level)", "refId": "A", "legendFormat": "{{risk_level}}" }]
+    },
+    {
+      "title": "MFA Failures Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [{ "expr": "rate(mfa_failures_total[5m])", "refId": "A" }]
+    },
+    {
+      "title": "JWT Tampering Detected",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [{ "expr": "rate(jwt_tamper_detected_total[5m])", "refId": "A" }]
+    }
+  ]
+}

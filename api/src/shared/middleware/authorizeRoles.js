@@ -124,7 +124,7 @@ export const authorizeRoles = (...allowedRolesInput) => {
           method:       req.method,
           path:         req.originalUrl,
           ip:           clientInfo.ip,
-          requestId:    req.id,
+          correlationId: req.correlationId,
         });
 
         // 📋 AUDIT: Persist RBAC denial for forensic analysis

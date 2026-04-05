@@ -39,7 +39,7 @@ export const googleCallback = async (req, res, next) => {
       name,
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
-      correlationId: req.id
+      correlationId: req.correlationId
     });
 
     if (result.status === 'MFA_REQUIRED') {
@@ -70,7 +70,7 @@ export const register = async (req, res, next) => {
       password,
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
-      correlationId: req.id
+      correlationId: req.correlationId
     });
 
     return res.status(201).json({
@@ -95,7 +95,7 @@ export const login = async (req, res, next) => {
       password,
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
-      correlationId: req.id
+      correlationId: req.correlationId
     });
 
     if (result.status === 'MFA_REQUIRED') {
@@ -140,7 +140,7 @@ export const validateMfaLogin = async (req, res, next) => {
       tempToken,
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
-      correlationId: req.id
+      correlationId: req.correlationId
     });
 
     mfaCounter.inc({ status: 'success' });
@@ -175,7 +175,7 @@ export const refresh = async (req, res, next) => {
     const tokens = await authService.refresh(refreshToken, {
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
-      correlationId: req.id
+      correlationId: req.correlationId
     });
 
     // Rotate cookie (replace old token)
@@ -202,7 +202,7 @@ export const logout = async (req, res, next) => {
     const refreshToken = req.cookies.refreshToken;
 
     if (refreshToken) {
-      await authService.logout(refreshToken, { correlationId: req.id });
+      await authService.logout(refreshToken, { correlationId: req.correlationId });
     }
 
     // Clear cookie
@@ -260,7 +260,7 @@ export const revokeSession = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    await authService.revokeSession(id, req.user.id, { correlationId: req.id });
+    await authService.revokeSession(id, req.user.id, { correlationId: req.correlationId });
 
     return successResponse(res, {}, 'Session revoked');
   } catch (err) {
@@ -273,7 +273,7 @@ export const revokeSession = async (req, res, next) => {
 // ─────────────────────────────────────────────
 export const revokeAllSessions = async (req, res, next) => {
   try {
-    await authService.revokeAllSessions(req.user.id, { correlationId: req.id });
+    await authService.revokeAllSessions(req.user.id, { correlationId: req.correlationId });
 
     // Clear cookie for security
     res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);

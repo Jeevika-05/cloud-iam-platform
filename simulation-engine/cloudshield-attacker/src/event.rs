@@ -23,6 +23,31 @@ pub struct GraphEvent {
 }
 
 impl GraphEvent {
+    /// W-1 FIX: Per-action severity mapping replaces the naive VULNERABLE/LOW binary.
+    /// Severity reflects actual attack danger independent of whether the platform blocked it.
+    /// Mapping rationale (MITRE ATT&CK + OWASP):
+    ///   CRITICAL — direct account compromise or mass-scale brute force
+    ///   HIGH     — token/session forgery, IDOR, privilege escalation vectors
+    ///   MEDIUM   — session hijack, rate flooding, CSRF, mass assignment
+    ///   LOW      — single-IP brute (caught by rate limiter), access token post-logout
+    fn severity_for_action(action: &str) -> &'static str {
+        match action {
+            "MFA_BRUTE_FORCE_DISTRIBUTED" => "CRITICAL",
+            "JWT_TAMPER"                  => "HIGH",
+            "IDOR"                        => "HIGH",
+            "TOKEN_RACE"                  => "HIGH",
+            "SESSION_REUSE"               => "HIGH",
+            "ACCESS_TOKEN_ABUSE"          => "MEDIUM",
+            "SESSION_INVALID"             => "MEDIUM",
+            "RATE_FLOOD"                  => "MEDIUM",
+            "CSRF"                        => "MEDIUM",
+            "MASS_ASSIGNMENT"             => "MEDIUM",
+            "PASSWORD_BRUTE"              => "MEDIUM",
+            "MFA_BRUTE_FORCE_SINGLE_IP"   => "MEDIUM",
+            _                             => "LOW",
+        }
+    }
+
     pub fn new_with_ip(
         correlation_id: &str,
         user_id: &str,
@@ -32,7 +57,8 @@ impl GraphEvent {
         result: &str,
         source_ip: String,
     ) -> Self {
-        let severity = if result == "VULNERABLE" || result == "CRITICAL" { "HIGH" } else { "LOW" }.to_string();
+        // W-1: Use action-based severity. Fall back to result-based only for unknown actions.
+        let severity = Self::severity_for_action(action).to_string();
         Self {
             event_id: Uuid::new_v4().to_string(),
             correlation_id: correlation_id.to_string(),

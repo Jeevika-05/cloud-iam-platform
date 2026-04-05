@@ -368,10 +368,35 @@ function enrichEvents(events) {
     }
 
     // --- Risk normalization ---
-    const riskLevel = e.risk_level
-      ?? (eventType === 'DEFENSE' ? (e.severity ?? null) : null);
-    const riskScore = e.risk_score
-      ?? (eventType === 'DEFENSE' && e.strike_count ? e.strike_count * 10 : null);
+    // W-2 FIX: Compute static risk score for batch-ingested attack events using
+    // identical weights to riskEngine.js, avoiding null RiskBuckets in Neo4j.
+    let riskLevel = e.risk_level ?? null;
+    let riskScore = e.risk_score ?? null;
+
+    if (riskScore === null && eventType === 'ATTACK') {
+      const SEVERITY_WEIGHTS = { CRITICAL: 25, HIGH: 15, MEDIUM: 8, LOW: 2 };
+      const BASE_EVENT_WEIGHTS = {
+        JWT_TAMPER: 20, TOKEN_RACE: 20, SESSION_REUSE: 20, ACCESS_TOKEN_ABUSE: 15, SESSION_INVALID: 8,
+        PASSWORD_BRUTE: 15, MFA_BRUTE_FORCE_SINGLE_IP: 15, MFA_BRUTE_FORCE_DISTRIBUTED: 25,
+        LOGIN_FAILED: 5, MFA_FAILED: 10, IDOR: 20, MASS_ASSIGNMENT: 15, RBAC_ACCESS_DENIED: 8,
+        ABAC_ACCESS_DENIED: 8, CSRF: 15, RATE_FLOOD: 10, BLOCKED_REQUEST: 5,
+        TOKEN_REUSE_DETECTED: 20, SUSPICIOUS_SESSION_DETECTED: 20, LOGIN_SUCCESS: -10
+      };
+      const base = BASE_EVENT_WEIGHTS[action] ?? 2;
+      const sevScore = SEVERITY_WEIGHTS[(e.severity || 'LOW').toUpperCase()] ?? 2;
+      // Derived from riskEngine: adjustedIncrement + severityScore
+      riskScore = Math.min(100, Math.max(0, base + sevScore + 10));
+    } else if (riskScore === null && eventType === 'DEFENSE' && e.strike_count) {
+      riskScore = e.strike_count * 10;
+    }
+
+    if (riskLevel === null && eventType === 'ATTACK' && riskScore !== null) {
+       if (riskScore >= 85) riskLevel = 'HIGH';
+       else if (riskScore >= 60) riskLevel = 'MEDIUM';
+       else riskLevel = 'LOW';
+    } else if (riskLevel === null && eventType === 'DEFENSE') {
+       riskLevel = e.severity ?? null;
+    }
 
     // --- Time bucket (minute resolution for burst detection) ---
     const timeBucket = Math.floor(tsMs / 60_000);

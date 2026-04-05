@@ -36,6 +36,10 @@ import { dirname, join }  from 'path';
 import logger from '../src/shared/utils/logger.js';
 import config from '../src/shared/config/index.js';
 import crypto from 'crypto';
+import { 
+  riskScoreComputedTotal, riskScoreDistribution, highRiskEventsTotal, 
+  escalateActionsTotal, defenseEventsTriggeredTotal 
+} from '../src/metrics/metrics.js';
 
 // ─────────────────────────────────────────────
 // Lua script — loaded once at startup
@@ -55,19 +59,36 @@ const SEVERITY_WEIGHTS = {
 };
 
 const BASE_EVENT_WEIGHTS = {
+  // ── Token / Session attacks ──────────────────────────────
   JWT_TAMPER:                   20,
+  TOKEN_RACE:                   20,  // W-6: was missing (defaulted to 2)
+  SESSION_REUSE:                20,
+  ACCESS_TOKEN_ABUSE:           15,  // W-6: was missing (defaulted to 2)
+  SESSION_INVALID:               8,  // W-6: was missing (defaulted to 2)
+
+  // ── Brute force attacks ──────────────────────────────────
   PASSWORD_BRUTE:               15,
   MFA_BRUTE_FORCE_SINGLE_IP:    15,
   MFA_BRUTE_FORCE_DISTRIBUTED:  25,
-  SESSION_REUSE:                20,
-  IDOR:                         20,
-  CSRF:                         15,
-  MASS_ASSIGNMENT:              15,
-  ACCESS_TOKEN_ABUSE:           20,
-  LOGIN_FAILED:                 5,
+  LOGIN_FAILED:                  5,
   MFA_FAILED:                   10,
+
+  // ── Authorization attacks ────────────────────────────────
+  IDOR:                         20,
+  MASS_ASSIGNMENT:              15,
+  RBAC_ACCESS_DENIED:            8,  // W-6: was missing (defaulted to 2)
+  ABAC_ACCESS_DENIED:            8,  // W-6: was missing (defaulted to 2)
+
+  // ── Network / application layer attacks ──────────────────
+  CSRF:                         15,
+  RATE_FLOOD:                   10,  // W-6: was missing (defaulted to 2)
+  BLOCKED_REQUEST:               5,  // W-6: was missing (defaulted to 2)
+
+  // ── Reuse / compromise ───────────────────────────────────
   TOKEN_REUSE_DETECTED:         20,
   SUSPICIOUS_SESSION_DETECTED:  20,
+
+  // ── Benign ───────────────────────────────────────────────
   LOGIN_SUCCESS:                -10,
 };
 
@@ -234,6 +255,16 @@ export class RiskEngine {
         error:          err.message,
         correlation_id: payload.correlation_id,
       });
+    }
+
+    defenseEventsTriggeredTotal.inc({
+      action: triggeringEvent?.action || triggeringEvent?.event_type || 'UNKNOWN',
+      event_type: triggeringEvent?.event_type || 'UNKNOWN',
+      severity: severity || 'LOW',
+      status: 'success'
+    });
+    if (severity === 'CRITICAL') {
+      escalateActionsTotal.inc();
     }
   }
 
@@ -416,6 +447,18 @@ export class RiskEngine {
         correlation_id:       event.correlation_id ?? null,
         event_id:             event.event_id        ?? null,
       });
+
+      // Update Prometheus Risk metrics
+      riskScoreComputedTotal.inc({
+        action: eventType || 'UNKNOWN',
+        event_type: event.event_type || 'UNKNOWN',
+        severity: event.severity || 'LOW',
+        status: 'success'
+      });
+      riskScoreDistribution.observe(score);
+      if (['HIGH', 'CRITICAL'].includes(riskLevel)) {
+        highRiskEventsTotal.inc({ risk_level: riskLevel, event_type: eventType, source: 'riskEngine' });
+      }
 
       // ── Publish to analysis stream ────────────────────────────────────────
       await this.redis.xadd(
