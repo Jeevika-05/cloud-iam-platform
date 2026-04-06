@@ -4,6 +4,7 @@ import * as userService from './user.service.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
+import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import { internalAuth } from '../../shared/middleware/internalAuth.js';
 import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
@@ -21,18 +22,30 @@ router.use(authenticate);
 
 
 // ─────────────────────────────────────────────
-// ADMIN only — full user management
+// ADMIN only — list all users
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → handler
 // ─────────────────────────────────────────────
 router.get(
   '/',
   authorizeRoles('ADMIN'),
+  requirePermission('users:list'),
   authorizePolicy({ action: 'read', resource: 'user' }),
   userController.getAllUsers
 );
 
+// ─────────────────────────────────────────────
+// ADMIN + SECURITY_ANALYST — read a single user
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → validate → handler
+//
+// FIX: authorizeRoles('ADMIN', 'SECURITY_ANALYST') added.
+// Previously only requirePermission guarded this route; the role guard
+// was missing, breaking the canonical middleware chain pattern and
+// bypassing the first defence-in-depth layer.
+// ─────────────────────────────────────────────
 router.get(
   '/:id',
-  authenticate,
+  authorizeRoles('ADMIN', 'SECURITY_ANALYST'),
+  requirePermission('users:read'),
   authorizePolicy({
     action: 'read',
     resource: 'user',
@@ -45,9 +58,14 @@ router.get(
   userController.getUserById
 );
 
+// ─────────────────────────────────────────────
+// ADMIN only — update a user's role
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → validate → handler
+// ─────────────────────────────────────────────
 router.patch(
   '/:id/role',
   authorizeRoles('ADMIN'),
+  requirePermission('users:update_role'),
   authorizePolicy({ action: 'update', resource: 'user' }),
   userIdParamRule,
   updateRoleRules,
@@ -55,9 +73,14 @@ router.patch(
   userController.updateUserRole
 );
 
+// ─────────────────────────────────────────────
+// ADMIN only — delete a user
+// Chain: authenticate → authorizeRoles → requirePermission → authorizePolicy → validate → handler
+// ─────────────────────────────────────────────
 router.delete(
   '/:id',
   authorizeRoles('ADMIN'),
+  requirePermission('users:delete'),
   authorizePolicy({ action: 'delete', resource: 'user' }),
   userIdParamRule,
   validate,
@@ -106,4 +129,3 @@ internalRouter.get('/:id', internalLimiter, internalAuth, async (req, res, next)
 });
 
 export { internalRouter };
-

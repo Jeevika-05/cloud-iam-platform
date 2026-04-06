@@ -80,6 +80,31 @@ export const authorizationFailures = new client.Counter({
 register.registerMetric(authorizationFailures);
 
 // ─────────────────────────────────────────────
+// RBAC OBSERVABILITY METRICS
+// Fine-grained per-permission grant/deny tracking.
+//
+// Labels are bounded low-cardinality:
+//   role:       3 values  (ADMIN | SECURITY_ANALYST | USER)
+//   permission: ~22 values (full set from permissions.js)
+//   route:      Express path patterns — no userId/IP bleed
+//
+// Max time series: 3 × 22 × ~12 routes = ~792 series (safe)
+// ─────────────────────────────────────────────
+export const rbacAllowedTotal = new client.Counter({
+  name: 'iam_rbac_allowed_total',
+  help: 'Total RBAC permission checks that were granted, by role, permission, and route',
+  labelNames: ['role', 'permission', 'route'],
+});
+register.registerMetric(rbacAllowedTotal);
+
+export const rbacDeniedTotal = new client.Counter({
+  name: 'iam_rbac_denied_total',
+  help: 'Total RBAC permission checks that were denied, by role, permission, and route',
+  labelNames: ['role', 'permission', 'route'],
+});
+register.registerMetric(rbacDeniedTotal);
+
+// ─────────────────────────────────────────────
 // INPUT VALIDATION METRICS (mass assignment etc.)
 // ─────────────────────────────────────────────
 export const validationFailures = new client.Counter({
@@ -120,183 +145,112 @@ export const requestCounter = new client.Counter({
 register.registerMetric(requestCounter);
 
 // ─────────────────────────────────────────────
-// SYSTEM METRICS
-// ─────────────────────────────────────────────
-export const streamConsumerLag = new client.Gauge({
-  name: 'iam_stream_consumer_lag',
-  help: 'Number of pending messages in the security events stream consumer group',
-  labelNames: ['stream', 'group'],
-});
-register.registerMetric(streamConsumerLag);
-
-export const securityEventSeverityCounter = new client.Counter({
-  name: 'iam_security_event_severity_total',
-  help: 'Total security events triggered by severity',
-  labelNames: ['severity'],
-});
-register.registerMetric(securityEventSeverityCounter);
-
-// ─────────────────────────────────────────────
-// PROMETHEUS METRICS DESIGN: 1. EVENT PIPELINE
-// ─────────────────────────────────────────────
-export const securityEventsIngestedTotal = new client.Counter({
-  name: 'security_events_ingested_total',
-  help: 'Total number of security events ingested into the stream',
-  labelNames: ['event_type', 'action', 'source']
-});
-register.registerMetric(securityEventsIngestedTotal);
-
-export const securityEventsProcessedTotal = new client.Counter({
-  name: 'security_events_processed_total',
-  help: 'Total number of security events successfully processed by workers',
-  labelNames: ['action', 'event_type', 'severity', 'status']
-});
-register.registerMetric(securityEventsProcessedTotal);
-
-export const defenseEventsTriggeredTotal = new client.Counter({
-  name: 'defense_events_triggered_total',
-  help: 'Total defense tasks queued',
-  labelNames: ['action', 'event_type', 'severity', 'status']
-});
-register.registerMetric(defenseEventsTriggeredTotal);
-
-export const eventsProcessingLatencyMs = new client.Histogram({
-  name: 'events_processing_latency_ms',
-  help: 'Latency of event processing in milliseconds',
-  labelNames: ['worker'],
-  buckets: [10, 50, 100, 250, 500, 1000, 5000] // Updated bucketing
-});
-register.registerMetric(eventsProcessingLatencyMs);
-
-// ── NEW: Pipeline Visibility ──
-export const eventsInflightGauge = new client.Gauge({
-  name: 'events_inflight_gauge',
-  help: 'Number of events currently being processed',
-  labelNames: ['worker']
-});
-register.registerMetric(eventsInflightGauge);
-
-export const processingBacklogSize = new client.Gauge({
-  name: 'processing_backlog_size',
-  help: 'Queue depth of pending events to be processed',
-  labelNames: ['stream']
-});
-register.registerMetric(processingBacklogSize);
-
-// ─────────────────────────────────────────────
-// PROMETHEUS METRICS DESIGN: 2. RISK ENGINE
-// ─────────────────────────────────────────────
-export const riskScoreComputedTotal = new client.Counter({
-  name: 'risk_score_computed_total',
-  help: 'Total risk scores computed',
-  labelNames: ['action', 'event_type', 'severity', 'status']
-});
-register.registerMetric(riskScoreComputedTotal);
-
-export const riskScoreDistribution = new client.Histogram({
-  name: 'risk_score_distribution',
-  help: 'Distribution of computed risk scores',
-  buckets: [10, 20, 30, 40, 50, 60, 70, 80, 85, 90, 95, 100]
-});
-register.registerMetric(riskScoreDistribution);
-
-export const highRiskEventsTotal = new client.Counter({
-  name: 'high_risk_events_total',
-  help: 'Total high risk events identified',
-  labelNames: ['risk_level', 'event_type', 'source']
-});
-register.registerMetric(highRiskEventsTotal);
-
-export const escalateActionsTotal = new client.Counter({
-  name: 'escalate_actions_total',
-  help: 'Total escalation actions triggered'
-});
-register.registerMetric(escalateActionsTotal);
-
-// ─────────────────────────────────────────────
-// PROMETHEUS METRICS DESIGN: 3. DEFENSE SYSTEM
+// ACTIVE DEFENSE — STRIKE METRICS
 // ─────────────────────────────────────────────
 export const strikesRecordedTotal = new client.Counter({
-  name: 'strikes_recorded_total',
-  help: 'Total strikes recorded against an IP',
-  labelNames: ['severity']
+  name: 'iam_strikes_recorded_total',
+  help: 'Total strike events recorded by active defense',
+  labelNames: ['ip_type'],
 });
 register.registerMetric(strikesRecordedTotal);
 
 export const bansTriggeredTotal = new client.Counter({
-  name: 'bans_triggered_total',
-  help: 'Total IP bans applied',
-  labelNames: ['severity', 'duration']
+  name: 'iam_bans_triggered_total',
+  help: 'Total ban events triggered by active defense',
+  labelNames: ['ip_type', 'ban_tier'],
 });
 register.registerMetric(bansTriggeredTotal);
 
 export const blockedRequestsTotal = new client.Counter({
-  name: 'blocked_requests_total',
-  help: 'Total HTTP requests blocked by active defender',
-  labelNames: ['reason']
+  name: 'iam_blocked_requests_total',
+  help: 'Total requests blocked by active defense (banned IP)',
+  labelNames: ['ip_type'],
 });
 register.registerMetric(blockedRequestsTotal);
 
 export const activeBansGauge = new client.Gauge({
-  name: 'active_bans_gauge',
-  help: 'Current number of active IP bans'
+  name: 'iam_active_bans_current',
+  help: 'Current number of active IP bans in Redis',
 });
 register.registerMetric(activeBansGauge);
 
 // ─────────────────────────────────────────────
-// PROMETHEUS METRICS DESIGN: 4. NEO4J GRAPH
+// RISK ENGINE METRICS
 // ─────────────────────────────────────────────
-// Replaced split success/failure bounds with unified counter + labels
-export const neo4jWriteTotal = new client.Counter({
-  name: 'neo4j_write_total',
-  help: 'Total Neo4j graph writes (success/failure)',
-  labelNames: ['action', 'event_type', 'severity', 'status']
+export const riskScoreHistogram = new client.Histogram({
+  name: 'iam_risk_score_distribution',
+  help: 'Distribution of risk scores from the risk engine',
+  buckets: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+  labelNames: ['risk_level'],
 });
-register.registerMetric(neo4jWriteTotal);
+register.registerMetric(riskScoreHistogram);
 
-export const neo4jWriteLatencyMs = new client.Histogram({
-  name: 'neo4j_write_latency_ms',
-  help: 'Latency of Neo4j write operations in milliseconds',
-  buckets: [10, 50, 100, 200, 500, 1000, 3000]
+export const riskEngineProcessingTime = new client.Histogram({
+  name: 'iam_risk_engine_processing_seconds',
+  help: 'Time taken by risk engine to evaluate an event',
+  buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
 });
-register.registerMetric(neo4jWriteLatencyMs);
+register.registerMetric(riskEngineProcessingTime);
 
-export const neo4jFailedEventsQueueSize = new client.Gauge({
-  name: 'neo4j_failed_events_queue_size',
-  help: 'Number of events in the neo4j repair queue'
+export const highRiskEventsTotal = new client.Counter({
+  name: 'iam_high_risk_events_total',
+  help: 'Total events classified as high risk (score >= 70)',
+  labelNames: ['event_type', 'action'],
 });
-register.registerMetric(neo4jFailedEventsQueueSize);
-
-// ── NEW: Health & Reliability ──
-export const workerLastProcessedTimestamp = new client.Gauge({
-  name: 'worker_last_processed_timestamp',
-  help: 'Epoch timestamp of the last processed event per worker',
-  labelNames: ['worker']
-});
-register.registerMetric(workerLastProcessedTimestamp);
-
-export const workerAliveGauge = new client.Gauge({
-  name: 'worker_alive_gauge',
-  help: 'Heartbeat gauge indicating the worker is running (1 = alive)',
-  labelNames: ['worker']
-});
-register.registerMetric(workerAliveGauge);
-
-export const redisConnectionStatus = new client.Gauge({
-  name: 'redis_connection_status',
-  help: 'Redis connection status (1 = connected, 0 = disconnected)'
-});
-register.registerMetric(redisConnectionStatus);
-
-export const neo4jConnectionStatus = new client.Gauge({
-  name: 'neo4j_connection_status',
-  help: 'Neo4j connection status (1 = connected, 0 = disconnected)'
-});
-register.registerMetric(neo4jConnectionStatus);
+register.registerMetric(highRiskEventsTotal);
 
 // ─────────────────────────────────────────────
-// PROMETHEUS METRICS DESIGN: 5. REDIS STREAMS
+// EVENT STREAM / WORKER METRICS
 // ─────────────────────────────────────────────
+export const eventWorkerProcessed = new client.Counter({
+  name: 'iam_event_worker_processed_total',
+  help: 'Total events processed by the stream worker',
+  labelNames: ['event_type', 'result'],
+});
+register.registerMetric(eventWorkerProcessed);
+
+export const eventWorkerErrors = new client.Counter({
+  name: 'iam_event_worker_errors_total',
+  help: 'Total errors encountered by the stream worker',
+  labelNames: ['stage'],
+});
+register.registerMetric(eventWorkerErrors);
+
+export const eventProcessingDuration = new client.Histogram({
+  name: 'iam_event_processing_duration_seconds',
+  help: 'Time taken to process a single security event',
+  buckets: [0.005, 0.01, 0.05, 0.1, 0.5, 1, 2],
+  labelNames: ['event_type'],
+});
+register.registerMetric(eventProcessingDuration);
+
+// ─────────────────────────────────────────────
+// NEO4J INGESTION METRICS
+// ─────────────────────────────────────────────
+export const neo4jIngestionTotal = new client.Counter({
+  name: 'iam_neo4j_ingestion_total',
+  help: 'Total events ingested into Neo4j',
+  labelNames: ['event_type', 'result'],
+});
+register.registerMetric(neo4jIngestionTotal);
+
+export const neo4jIngestionDuration = new client.Histogram({
+  name: 'iam_neo4j_ingestion_duration_seconds',
+  help: 'Time taken for Neo4j ingestion batch',
+  buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5],
+});
+register.registerMetric(neo4jIngestionDuration);
+
+// ─────────────────────────────────────────────
+// REDIS STREAM METRICS
+// ─────────────────────────────────────────────
+export const redisStreamLength = new client.Gauge({
+  name: 'redis_stream_length',
+  help: 'Current length of a Redis stream',
+  labelNames: ['stream']
+});
+register.registerMetric(redisStreamLength);
+
 export const redisStreamLag = new client.Gauge({
   name: 'redis_stream_lag',
   help: 'Number of pending messages (lag) per consumer group',
@@ -347,4 +301,3 @@ export const jwtTamperDetectedTotal = new client.Counter({
 register.registerMetric(jwtTamperDetectedTotal);
 
 export { register };
-

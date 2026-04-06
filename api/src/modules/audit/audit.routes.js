@@ -13,6 +13,7 @@ import { authenticate } from '../../shared/middleware/authenticate.js';
 import { internalAuth } from '../../shared/middleware/internalAuth.js';
 import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
 import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
+import { requirePermission } from '../../shared/middleware/requirePermission.js';
 
 const router = Router();
 
@@ -144,9 +145,10 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
 });
 
 // ─────────────────────────────────────────────
-// GENERAL EVENTS — Auth required
+// GENERAL EVENTS — Auth + RBAC + Permission required
+// Chain: authenticate → authorizeRoles → requirePermission → handler
 // ─────────────────────────────────────────────
-router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'), async (req, res) => {
+router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'), requirePermission('audit:view_events'), async (req, res) => {
   try {
     const {
       event_type,

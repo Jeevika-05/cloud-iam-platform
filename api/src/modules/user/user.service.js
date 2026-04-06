@@ -111,9 +111,39 @@ export const updateUserRole = async (id, role, currentUser) => {
 
   const previousRole = user.role;
 
+  // 🔒 RBAC-FIX: Last-admin protection — prevent system lockout.
+  // If the target user is an ADMIN and we're demoting them, verify
+  // at least one other ADMIN will remain.
+  if (previousRole === 'ADMIN' && role !== 'ADMIN') {
+    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+    if (adminCount <= 1) {
+      await logSecurityEvent({
+        userId: currentUser.id,
+        action: 'LAST_ADMIN_DEMOTION_DENIED',
+        status: 'FAILURE',
+        ip: null,
+        userAgent: null,
+        metadata: { targetUserId: id, attemptedRole: role, adminCount },
+      });
+      throw new AppError(
+        'Cannot demote the last ADMIN. Promote another user to ADMIN first.',
+        403,
+        'LAST_ADMIN_PROTECTED'
+      );
+    }
+  }
+
+  // 🔒 RBAC-FIX: Increment tokenVersion on role change.
+  // This invalidates all existing JWTs for this user immediately,
+  // because authenticate.js checks decoded.tokenVersion vs DB tokenVersion.
+  // Without this, the old access token (up to 15min TTL) would carry
+  // stale privileges until natural expiry.
   const updatedUser = await prisma.user.update({
     where: { id },
-    data: { role },
+    data: {
+      role,
+      tokenVersion: { increment: 1 },
+    },
     select: { id: true, name: true, email: true, role: true },
   });
 
@@ -162,6 +192,26 @@ export const deleteUser = async (id, currentUser) => {
       metadata: { targetUserId: id },
     });
     throw new AppError('You cannot delete your own account', 403, 'FORBIDDEN');
+  }
+
+  // 🔒 RBAC-FIX: Last-admin protection — prevent system lockout on deletion.
+  if (user.role === 'ADMIN') {
+    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+    if (adminCount <= 1) {
+      await logSecurityEvent({
+        userId: currentUser.id,
+        action: 'LAST_ADMIN_DELETE_DENIED',
+        status: 'FAILURE',
+        ip: null,
+        userAgent: null,
+        metadata: { targetUserId: id, adminCount },
+      });
+      throw new AppError(
+        'Cannot delete the last ADMIN. Promote another user to ADMIN first.',
+        403,
+        'LAST_ADMIN_PROTECTED'
+      );
+    }
   }
 
   const deletedEmail = user.email;
