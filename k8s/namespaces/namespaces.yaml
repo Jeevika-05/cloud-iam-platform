@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iam-backend
+  labels:
+    name: iam-backend
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iam-database
+  labels:
+    name: iam-database
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iam-security-graph
+  labels:
+    name: iam-security-graph
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iam-monitoring
+  labels:
+    name: iam-monitoring
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iam-attack-sim
+  labels:
+    name: iam-attack-sim
