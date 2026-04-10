@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────
+# Persistent Volume Claims for stateful services
+# ─────────────────────────────────────────────────────────────
+
+# ── PostgreSQL data (backend namespace) ──────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: backend
+  labels:
+    app: postgres
+    project: cloud-iam-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+# ── Neo4j data (security-graph namespace) ────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: neo4j-data
+  namespace: security-graph
+  labels:
+    app: neo4j
+    project: cloud-iam-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+---
+# ── Grafana data (monitoring namespace) ──────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: monitoring
+  labels:
+    app: grafana
+    project: cloud-iam-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: standard

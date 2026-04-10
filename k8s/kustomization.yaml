@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────
+# Kustomization — Ordered resource application
+# Apply with: kubectl apply -k k8s/
+# ─────────────────────────────────────────────────────────────
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # 1. Namespaces (must be first)
+  - namespaces/namespaces.yaml
+
+  # 2. RBAC, Quotas, LimitRanges
+  - rbac/rbac.yaml
+
+  # 3. Network Policies (apply early for security)
+  - network-policies/network-policies.yaml
+
+  # 4. Secrets
+  - secrets/secrets.yaml
+  - secrets/jwt-keys-secret.yaml
+
+  # 5. Storage (PVCs)
+  - storage/pvcs.yaml
+
+  # 6. ConfigMaps
+  - backend/configmap.yaml
+
+  # 7. Data layer
+  - database/postgres.yaml
+  - redis/redis.yaml
+  - neo4j/neo4j.yaml
+
+  # 8. Application layer
+  - backend/backend-deployment.yaml
+  - backend/workers-deployment.yaml
+  - backend/hpa.yaml
+
+  # 9. Monitoring
+  - monitoring/prometheus.yaml
+  - monitoring/grafana.yaml
+
+  # 10. Jobs (apply last)
+  - attack-sim/attack-sim-job.yaml
+
+commonAnnotations:
+  managed-by: kustomize

@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────
+# ConfigMap — Non-sensitive application configuration
+# Sensitive values are in Secrets, not here
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: backend
+  labels:
+    app: backend-api
+    project: cloud-iam-platform
+data:
+  # ── Application ──
+  NODE_ENV: "development"
+  PORT: "3000"
+  CORS_ORIGIN: "http://localhost:3000"
+
+  # ── JWT ──
+  JWT_ACTIVE_KID: "key1"
+  JWT_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  JWT_TEMP_EXPIRES_IN: "5m"
+
+  # ── JWT key file paths (mounted from jwt-keys secret) ──
+  JWT_KEY_KEY1_PRIVATE_FILE: "/app/keys/key1-private.pem"
+  JWT_KEY_KEY1_PUBLIC_FILE: "/app/keys/key1-public.pem"
+  JWT_KEY_KEY2_PRIVATE_FILE: "/app/keys/key2-private.pem"
+  JWT_KEY_KEY2_PUBLIC_FILE: "/app/keys/key2-public.pem"
+
+  # ── Google OAuth redirect ──
+  GOOGLE_REDIRECT_URI: "http://localhost:3000/api/v1/auth/google/callback"
+
+  # ── Active Defense ──
+  ACTIVE_DEFENDER: "true"
+  SIMULATION_MODE: "true"
+
+  # ── Trusted IP ──
+  TRUSTED_IP: "127.0.0.1"
+
+  # ── Risk thresholds ──
+  RISK_THRESHOLD_LOW: "30"
+  RISK_THRESHOLD_MEDIUM: "60"
+  RISK_THRESHOLD_HIGH: "85"
+
+  # ── Worker metrics ports ──
+  WORKER_METRICS_PORT: "9091"
+  DEFENSE_WORKER_METRICS_PORT: "9092"

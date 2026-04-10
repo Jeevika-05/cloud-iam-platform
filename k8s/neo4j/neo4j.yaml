@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────
+# Neo4j 5 — Security event graph database
+# Deployed in security-graph namespace for isolation
+# ─────────────────────────────────────────────────────────────
+
+# ── ServiceAccount ───────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: neo4j-sa
+  namespace: security-graph
+  labels:
+    app: neo4j
+    project: cloud-iam-platform
+automountServiceAccountToken: false
+---
+# ── Deployment ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j
+  namespace: security-graph
+  labels:
+    app: neo4j
+    project: cloud-iam-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+        project: cloud-iam-platform
+    spec:
+      serviceAccountName: neo4j-sa
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 7474
+      containers:
+        - name: neo4j
+          image: neo4j:5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7474
+              protocol: TCP
+              name: http
+            - containerPort: 7687
+              protocol: TCP
+              name: bolt
+          env:
+            - name: NEO4J_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-credentials
+                  key: NEO4J_AUTH
+            - name: NEO4J_PLUGINS
+              value: '[]'
+            - name: NEO4J_server_memory_heap_initial__size
+              value: "256m"
+            - name: NEO4J_server_memory_heap_max__size
+              value: "512m"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: neo4j-storage
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7474
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7474
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+      volumes:
+        - name: neo4j-storage
+          persistentVolumeClaim:
+            claimName: neo4j-data
+---
+# ── Service (ClusterIP) ─────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: security-graph
+  labels:
+    app: neo4j
+    project: cloud-iam-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: neo4j
+  ports:
+    - port: 7474
+      targetPort: 7474
+      protocol: TCP
+      name: http
+    - port: 7687
+      targetPort: 7687
+      protocol: TCP
+      name: bolt

@@ -26,7 +26,8 @@ export const googleCallback = async (req, res, next) => {
     if (!code) {
       // In case they pass purely the ID token natively from a frontend SDK, support it natively
       const idTokenHeader = req.headers['x-google-id-token'];
-      if (!idTokenHeader) throw new Error('Authorization code missing');
+      if (!idTokenHeader || typeof idTokenHeader !== 'string') throw new Error('Authorization code missing');
+      if (idTokenHeader.length > 4096) throw new Error('ID token too large');
       req.query.idToken = idTokenHeader; // Forward for explicit manual flow handling below
     }
 
@@ -134,6 +135,14 @@ export const login = async (req, res, next) => {
 export const validateMfaLogin = async (req, res, next) => {
   try {
     const { code, tempToken } = req.body;
+
+    // 🔒 Validate inputs
+    if (!tempToken || typeof tempToken !== 'string') {
+      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'tempToken is required' });
+    }
+    if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'MFA code must be a 6-digit number' });
+    }
 
     const result = await authService.validateMfaLogin({
       code,

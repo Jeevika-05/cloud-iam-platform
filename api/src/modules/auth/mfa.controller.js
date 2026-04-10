@@ -1,5 +1,6 @@
 import * as mfaService from './mfa.service.js';
 import { successResponse } from '../../shared/utils/response.js';
+import AppError from '../../shared/utils/AppError.js';
 
 export const setupMfa = async (req, res, next) => {
   try {
@@ -13,6 +14,12 @@ export const setupMfa = async (req, res, next) => {
 export const verifyMfa = async (req, res, next) => {
   try {
     const { code } = req.body;
+
+    // 🔒 Validate MFA code format (must be 6-digit numeric)
+    if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+      throw new AppError('MFA code must be a 6-digit number', 400, 'INVALID_MFA_FORMAT');
+    }
+
     await mfaService.verifyMfa(req.user.id, code);
     return successResponse(res, {}, 'MFA successfully enabled');
   } catch (err) {

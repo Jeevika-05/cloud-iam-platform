@@ -1,34 +1,39 @@
+# ─────────────────────────────────────────────────────────────
+# Namespace Isolation for Cloud IAM Security Platform
+# Four isolated namespaces with explicit labels for NetworkPolicy selectors
+# ─────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: iam-backend
+  name: backend
   labels:
-    name: iam-backend
+    name: backend
+    project: cloud-iam-platform
+    environment: production
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: iam-database
+  name: monitoring
   labels:
-    name: iam-database
+    name: monitoring
+    project: cloud-iam-platform
+    environment: production
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: iam-security-graph
+  name: attack-sim
   labels:
-    name: iam-security-graph
+    name: attack-sim
+    project: cloud-iam-platform
+    environment: production
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: iam-monitoring
+  name: security-graph
   labels:
-    name: iam-monitoring
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: iam-attack-sim
-  labels:
-    name: iam-attack-sim
+    name: security-graph
+    project: cloud-iam-platform
+    environment: production

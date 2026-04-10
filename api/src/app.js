@@ -15,11 +15,12 @@ import userRoutes, { internalRouter as internalUserRouter } from './modules/user
 import analyticsRoutes from './modules/analytics/analytics.routes.js';
 import mfaRoutes from './modules/auth/mfa.routes.js';
 import auditRoutes from './modules/audit/audit.routes.js';
+import rbacRoutes from './modules/rbac/rbac.routes.js';
 
 import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.js';
 import { authenticate } from './shared/middleware/authenticate.js';
 import logger from './shared/utils/logger.js';
-import { register, requestCounter } from './metrics/metrics.js';
+import { register, requestCounter, httpResponseDuration, httpErrorRate } from './metrics/metrics.js';
 import { activeDefenseMiddleware } from './shared/middleware/activeDefender.js';
 import { internalAuth } from './shared/middleware/internalAuth.js';
 
@@ -147,11 +148,28 @@ app.use(apiLimiter);
 
 // ─────────────────────────────────────────────
 // GLOBAL REQUEST TRACKING (Prometheus)
+// Tracks: request count, response time, error rate
 // ─────────────────────────────────────────────
 app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
   res.on('finish', () => {
     const route = req.route ? (req.baseUrl + req.route.path) : 'unknown_route';
-    requestCounter.inc({ method: req.method, route, status: res.statusCode });
+    const labels = { method: req.method, route, status: res.statusCode };
+
+    // 1. Request count
+    requestCounter.inc(labels);
+
+    // 2. Response duration
+    const durationNs = Number(process.hrtime.bigint() - start);
+    httpResponseDuration.observe(labels, durationNs / 1e9);
+
+    // 3. Error rate (4xx + 5xx)
+    if (res.statusCode >= 400) {
+      httpErrorRate.inc({
+        ...labels,
+        error_class: res.statusCode >= 500 ? 'server' : 'client',
+      });
+    }
   });
   next();
 });
@@ -165,6 +183,7 @@ app.use('/api/v1/mfa', mfaRoutes);
 app.use('/api/v1/users', authenticate, userRoutes);
 app.use('/api/v1/analytics', authenticate, analyticsRoutes);
 app.use('/api/v1/audit', auditRoutes);
+app.use('/api/v1/rbac', rbacRoutes);
 
 // ─────────────────────────────────────────────
 // INTERNAL ROUTES — Zero Trust (service-to-service only)

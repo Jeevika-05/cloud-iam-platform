@@ -28,7 +28,15 @@ if (!INTERNAL_TOKEN) {
  * Middleware — validates internal service token.
  */
 export const internalAuth = (req, res, next) => {
-  const provided = req.headers['x-internal-token'];
+  let provided = req.headers['x-internal-token'];
+
+  // Support Prometheus standard Bearer token scraping
+  if (!provided && req.headers['authorization']) {
+    const parts = req.headers['authorization'].split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer') {
+      provided = parts[1];
+    }
+  }
 
   // Reject if the env var itself is missing — fail secure
   if (!INTERNAL_TOKEN) {

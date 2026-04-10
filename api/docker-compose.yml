@@ -3,6 +3,9 @@ services:
     image: redis:7-alpine
     container_name: auth_redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
     networks:
       - backend
     healthcheck:
@@ -16,7 +19,7 @@ services:
     container_name: authdb
     restart: unless-stopped
     env_file:
-      - .env
+      - .env.config
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -43,26 +46,24 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - .env.config
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
-      REDIS_URL: redis://redis:6379
-      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-key1}
+      SECRET_PROVIDER: docker-secrets
       JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
       JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
       JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
       JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
       JWT_PRIVATE_KEY_FILE: /app/keys/jwt_private.pem
       JWT_PUBLIC_KEY_FILE: /app/keys/jwt_public.pem
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      ENCRYPTION_KEY_V1_FILE: /app/keys/encryption_v1.key
+      ENCRYPTION_KEY_V2_FILE: /app/keys/encryption_v2.key
     ports:
       - '${PORT:-3000}:3000'
     volumes:
       - .:/app
       - /app/node_modules
       - ./keys:/app/keys:ro
+      - ./secrets:/run/secrets:ro
     command: npm run dev
     networks:
       - backend
@@ -85,19 +86,25 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
     env_file:
-      - .env
+      - .env.config
     environment:
-      NODE_ENV: development
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
-      REDIS_URL: redis://redis:6379
-      WORKER_METRICS_PORT: 9091
+      SECRET_PROVIDER: docker-secrets
+      JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
+      JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
+      JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
+      JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
+      ENCRYPTION_KEY_V1_FILE: /app/keys/encryption_v1.key
+      ENCRYPTION_KEY_V2_FILE: /app/keys/encryption_v2.key
     ports:
       - '9091:9091'
     volumes:
       - .:/app
       - /app/node_modules
       - ./keys:/app/keys:ro
+      - ./secrets:/run/secrets:ro
     networks:
       - backend
 
@@ -114,18 +121,22 @@ services:
       worker:
         condition: service_started
     env_file:
-      - .env
+      - .env.config
     environment:
-      NODE_ENV: development
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
-      REDIS_URL: redis://redis:6379
-      DEFENSE_WORKER_METRICS_PORT: 9092
+      SECRET_PROVIDER: docker-secrets
+      JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
+      JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
+      JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
+      JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
+      ENCRYPTION_KEY_V1_FILE: /app/keys/encryption_v1.key
+      ENCRYPTION_KEY_V2_FILE: /app/keys/encryption_v2.key
     ports:
       - '9092:9092'
     volumes:
       - .:/app
       - /app/node_modules
       - ./keys:/app/keys:ro
+      - ./secrets:/run/secrets:ro
     networks:
       - backend
 
@@ -139,7 +150,7 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - .env
+      - .env.config
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
     command: ['npx', 'prisma', 'migrate', 'deploy']
@@ -230,11 +241,20 @@ services:
       - "7687:7687"
     environment:
       NEO4J_AUTH: neo4j/password
+    volumes:
+      - neo4j_data:/data
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 volumes:
   postgres_data:
   grafana_data:
+  neo4j_data:
+  redis_data:
 
 networks:
   backend:

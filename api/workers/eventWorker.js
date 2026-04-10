@@ -43,7 +43,7 @@ import {
 } from '../src/metrics/metrics.js';
 import { RiskEngine }        from './riskEngine.js';
 import { redis as redisConfig } from '../src/shared/config/index.js';
-import { mergeEventToGraph, closeNeo4jDriver } from '../src/shared/db/neo4j.js';
+import { mergeEventToGraph, closeNeo4jDriver, initSchema } from '../src/shared/db/neo4j.js';
 
 // ─────────────────────────────────────────────
 // METRICS HTTP SERVER (scraped by Prometheus)
@@ -187,6 +187,9 @@ async function initializeRedis() {
   // TASK 3: On startup, reclaim PEL messages from crashed workers
   logger.info('STARTUP_PEL_RECLAIM');
   await reclaimAndRetry();
+
+  // Initialize Neo4j schema (creates indexes and uniqueness constraints)
+  await initSchema();
 }
 
 // ─────────────────────────────────────────────

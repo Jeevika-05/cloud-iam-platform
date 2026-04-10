@@ -3,13 +3,16 @@ global:
 
 scrape_configs:
   - job_name: 'iam-backend'
+    bearer_token: 'change-this-to-a-secure-random-hex-string-min-32-chars'
     static_configs:
       - targets: ['backend:3000']
 
   - job_name: 'iam-event-worker'
+    bearer_token: 'change-this-to-a-secure-random-hex-string-min-32-chars'
     static_configs:
       - targets: ['worker:9091']
 
   - job_name: 'iam-defense-worker'
+    bearer_token: 'change-this-to-a-secure-random-hex-string-min-32-chars'
     static_configs:
       - targets: ['defense_worker:9092']

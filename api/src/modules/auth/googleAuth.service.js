@@ -12,7 +12,8 @@ const client = new OAuth2Client(
 export const getAuthUrl = () => {
   return client.generateAuthUrl({
     access_type: 'offline',
-    scope: ['email', 'profile']
+    scope: ['openid', 'email', 'profile'],
+    prompt: 'consent',
   });
 };
 
@@ -44,7 +45,7 @@ export const verifyGoogleIdToken = async (idToken) => {
       name: payload.name,
     };
   } catch (error) {
-    if (error.isAppError) throw error;
+    if (error instanceof AppError) throw error;
     throw new AppError('Invalid Google token', 401, 'INVALID_GOOGLE_TOKEN');
   }
 };

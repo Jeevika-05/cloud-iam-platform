@@ -17,10 +17,10 @@ router.get('/google/callback', authController.googleCallback);
 
 router.post('/login', authLimiter, loginRules, validate, authController.login);
 
-// 🔐 SECURITY FIX: mfaLimiter (5 attempts/15min) replaces authLimiter to prevent TOTP brute-force
+// SECURITY FIX: mfaLimiter (5 attempts/15min) replaces authLimiter to prevent TOTP brute-force
 router.post('/mfa/validate-login', mfaLimiter, authController.validateMfaLogin);
 
-// 🔒 SEC-12: Rate-limit refresh endpoint (prevents token rotation abuse)
+// SEC-12: Rate-limit refresh endpoint (prevents token rotation abuse)
 router.post('/refresh', authLimiter, authController.refresh);
 
 // ─────────────────────────────────────────────

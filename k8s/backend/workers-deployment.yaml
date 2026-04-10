@@ -1,0 +1,322 @@
+# ─────────────────────────────────────────────────────────────
+# Workers — Event processing and Active Defense
+# Same image as backend, different entrypoints
+# ─────────────────────────────────────────────────────────────
+
+# ── Event Worker ServiceAccount ──────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: event-worker-sa
+  namespace: backend
+  labels:
+    app: event-worker
+    project: cloud-iam-platform
+automountServiceAccountToken: false
+---
+# ── Event Worker Deployment ──────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-worker
+  namespace: backend
+  labels:
+    app: event-worker
+    tier: worker
+    project: cloud-iam-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: event-worker
+  template:
+    metadata:
+      labels:
+        app: event-worker
+        tier: worker
+        project: cloud-iam-platform
+    spec:
+      serviceAccountName: event-worker-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: event-worker
+          image: cloud-iam-platform/backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["dumb-init", "--"]
+          args: ["node", "workers/eventWorker.js"]
+          ports:
+            - containerPort: 9091
+              protocol: TCP
+              name: metrics
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: REDIS_URL
+            - name: NEO4J_URL
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-credentials
+                  key: NEO4J_URL
+            - name: NEO4J_USER
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-credentials
+                  key: NEO4J_USER
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-credentials
+                  key: NEO4J_PASSWORD
+            - name: ACTIVE_KEY_VERSION
+              valueFrom:
+                secretKeyRef:
+                  name: encryption-keys
+                  key: ACTIVE_KEY_VERSION
+            - name: ENCRYPTION_KEY_V1
+              valueFrom:
+                secretKeyRef:
+                  name: encryption-keys
+                  key: ENCRYPTION_KEY_V1
+            - name: ENCRYPTION_KEY_V2
+              valueFrom:
+                secretKeyRef:
+                  name: encryption-keys
+                  key: ENCRYPTION_KEY_V2
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9091
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9091
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+---
+# ── Event Worker Service (ClusterIP — for Prometheus scraping) ──
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-worker
+  namespace: backend
+  labels:
+    app: event-worker
+    project: cloud-iam-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: event-worker
+  ports:
+    - port: 9091
+      targetPort: 9091
+      protocol: TCP
+      name: metrics
+---
+# ── Defense Worker ServiceAccount ────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: defense-worker-sa
+  namespace: backend
+  labels:
+    app: defense-worker
+    project: cloud-iam-platform
+automountServiceAccountToken: false
+---
+# ── Defense Worker Deployment ────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defense-worker
+  namespace: backend
+  labels:
+    app: defense-worker
+    tier: worker
+    project: cloud-iam-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: defense-worker
+  template:
+    metadata:
+      labels:
+        app: defense-worker
+        tier: worker
+        project: cloud-iam-platform
+    spec:
+      serviceAccountName: defense-worker-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: defense-worker
+          image: cloud-iam-platform/backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["dumb-init", "--"]
+          args: ["node", "workers/defenseWorker.js"]
+          ports:
+            - containerPort: 9092
+              protocol: TCP
+              name: metrics
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: REDIS_URL
+            - name: ACTIVE_KEY_VERSION
+              valueFrom:
+                secretKeyRef:
+                  name: encryption-keys
+                  key: ACTIVE_KEY_VERSION
+            - name: ENCRYPTION_KEY_V1
+              valueFrom:
+                secretKeyRef:
+                  name: encryption-keys
+                  key: ENCRYPTION_KEY_V1
+            - name: ENCRYPTION_KEY_V2
+              valueFrom:
+                secretKeyRef:
+                  name: encryption-keys
+                  key: ENCRYPTION_KEY_V2
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9092
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9092
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+---
+# ── Defense Worker Service (ClusterIP — for Prometheus scraping) ──
+apiVersion: v1
+kind: Service
+metadata:
+  name: defense-worker
+  namespace: backend
+  labels:
+    app: defense-worker
+    project: cloud-iam-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: defense-worker
+  ports:
+    - port: 9092
+      targetPort: 9092
+      protocol: TCP
+      name: metrics
+---
+# ── Database Migration Job ───────────────────────────────────
+# Run once after deployment to apply Prisma migrations
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prisma-migrate
+  namespace: backend
+  labels:
+    app: prisma-migrate
+    project: cloud-iam-platform
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: prisma-migrate
+        project: cloud-iam-platform
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: migrate
+          image: cloud-iam-platform/backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["npx", "prisma", "migrate", "deploy"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            capabilities:
+              drop:
+                - ALL

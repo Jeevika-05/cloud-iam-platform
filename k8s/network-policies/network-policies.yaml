@@ -1,0 +1,607 @@
+# ═════════════════════════════════════════════════════════════
+# Network Policies — Zero-Trust Microsegmentation
+# Default deny all + explicit allow for required communication
+# ═════════════════════════════════════════════════════════════
+
+
+# ─────────────────────────────────────────────────────────────
+# 1. DEFAULT DENY — All four namespaces
+# ─────────────────────────────────────────────────────────────
+
+# ── Backend: deny all ────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: backend
+  labels:
+    policy: default-deny
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# ── Monitoring: deny all ────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: monitoring
+  labels:
+    policy: default-deny
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# ── Attack-Sim: deny all ────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: attack-sim
+  labels:
+    policy: default-deny
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# ── Security-Graph: deny all ────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: security-graph
+  labels:
+    policy: default-deny
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+
+# ─────────────────────────────────────────────────────────────
+# 2. DNS EGRESS — All namespaces need DNS resolution
+# ─────────────────────────────────────────────────────────────
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: backend
+  labels:
+    policy: dns
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: monitoring
+  labels:
+    policy: dns
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: attack-sim
+  labels:
+    policy: dns
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: security-graph
+  labels:
+    policy: dns
+    project: cloud-iam-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+
+# ─────────────────────────────────────────────────────────────
+# 3. BACKEND NAMESPACE — Ingress rules
+# ─────────────────────────────────────────────────────────────
+
+# ── Backend API: accept from NodePort, monitoring, attack-sim ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-api-ingress
+  namespace: backend
+  labels:
+    policy: backend-ingress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: backend-api
+  policyTypes:
+    - Ingress
+  ingress:
+    # NodePort external traffic (any source → port 3000)
+    - ports:
+        - protocol: TCP
+          port: 3000
+---
+# ── PostgreSQL: accept from backend pods only ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+  namespace: backend
+  labels:
+    policy: postgres-ingress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-api
+        - podSelector:
+            matchLabels:
+              app: event-worker
+        - podSelector:
+            matchLabels:
+              app: defense-worker
+        - podSelector:
+            matchLabels:
+              app: prisma-migrate
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# ── Redis: accept from backend pods only ─────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+  namespace: backend
+  labels:
+    policy: redis-ingress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-api
+        - podSelector:
+            matchLabels:
+              app: event-worker
+        - podSelector:
+            matchLabels:
+              app: defense-worker
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# ── Workers: accept metrics scraping from Prometheus ─────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-metrics-ingress
+  namespace: backend
+  labels:
+    policy: metrics-scraping
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      tier: worker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9091
+        - protocol: TCP
+          port: 9092
+---
+
+# ─────────────────────────────────────────────────────────────
+# 4. BACKEND NAMESPACE — Egress rules
+# ─────────────────────────────────────────────────────────────
+
+# ── Backend API: egress to Postgres, Redis, Neo4j ────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-api-egress
+  namespace: backend
+  labels:
+    policy: backend-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: backend-api
+  policyTypes:
+    - Egress
+  egress:
+    # → PostgreSQL (same namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # → Redis (same namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # → Neo4j (security-graph namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: security-graph
+          podSelector:
+            matchLabels:
+              app: neo4j
+      ports:
+        - protocol: TCP
+          port: 7687
+---
+# ── Event Worker: egress to Postgres, Redis, Neo4j ───────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-event-worker-egress
+  namespace: backend
+  labels:
+    policy: worker-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: event-worker
+  policyTypes:
+    - Egress
+  egress:
+    # → PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # → Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # → Neo4j
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: security-graph
+          podSelector:
+            matchLabels:
+              app: neo4j
+      ports:
+        - protocol: TCP
+          port: 7687
+---
+# ── Defense Worker: egress to Postgres, Redis ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-defense-worker-egress
+  namespace: backend
+  labels:
+    policy: worker-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: defense-worker
+  policyTypes:
+    - Egress
+  egress:
+    # → PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # → Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# ── Prisma Migrate Job: egress to Postgres only ─────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prisma-migrate-egress
+  namespace: backend
+  labels:
+    policy: migrate-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: prisma-migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+
+# ─────────────────────────────────────────────────────────────
+# 5. SECURITY-GRAPH NAMESPACE — Neo4j access
+# ─────────────────────────────────────────────────────────────
+
+# ── Neo4j: accept from backend namespace only ────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-neo4j-ingress-from-backend
+  namespace: security-graph
+  labels:
+    policy: neo4j-ingress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: neo4j
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: backend
+      ports:
+        - protocol: TCP
+          port: 7687
+        - protocol: TCP
+          port: 7474
+---
+
+# ─────────────────────────────────────────────────────────────
+# 6. MONITORING NAMESPACE — Prometheus & Grafana
+# ─────────────────────────────────────────────────────────────
+
+# ── Prometheus: egress to backend namespace (scraping) ───────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-egress
+  namespace: monitoring
+  labels:
+    policy: prometheus-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    # → Backend API metrics
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: backend
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 9091
+        - protocol: TCP
+          port: 9092
+---
+# ── Prometheus: accept ingress from Grafana ──────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-ingress
+  namespace: monitoring
+  labels:
+    policy: prometheus-ingress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    # From Grafana (same namespace)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - protocol: TCP
+          port: 9090
+    # NodePort external access
+    - ports:
+        - protocol: TCP
+          port: 9090
+---
+# ── Grafana: egress to Prometheus (same namespace) ───────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-egress
+  namespace: monitoring
+  labels:
+    policy: grafana-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+# ── Grafana: accept NodePort ingress ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-ingress
+  namespace: monitoring
+  labels:
+    policy: grafana-ingress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3000
+---
+
+# ─────────────────────────────────────────────────────────────
+# 7. ATTACK-SIM NAMESPACE — Egress to backend only
+# ─────────────────────────────────────────────────────────────
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-attack-sim-egress
+  namespace: attack-sim
+  labels:
+    policy: attack-sim-egress
+    project: cloud-iam-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: attack-sim
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: backend
+          podSelector:
+            matchLabels:
+              app: backend-api
+      ports:
+        - protocol: TCP
+          port: 3000

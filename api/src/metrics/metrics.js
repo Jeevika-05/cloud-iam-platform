@@ -144,6 +144,21 @@ export const requestCounter = new client.Counter({
 });
 register.registerMetric(requestCounter);
 
+export const httpResponseDuration = new client.Histogram({
+  name: 'iam_http_response_duration_seconds',
+  help: 'HTTP response duration in seconds',
+  labelNames: ['method', 'route', 'status'],
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+});
+register.registerMetric(httpResponseDuration);
+
+export const httpErrorRate = new client.Counter({
+  name: 'iam_http_errors_total',
+  help: 'Total HTTP error responses (4xx and 5xx)',
+  labelNames: ['method', 'route', 'status', 'error_class'],
+});
+register.registerMetric(httpErrorRate);
+
 // ─────────────────────────────────────────────
 // ACTIVE DEFENSE — STRIKE METRICS
 // ─────────────────────────────────────────────
@@ -299,5 +314,127 @@ export const jwtTamperDetectedTotal = new client.Counter({
   help: 'Total JWT tampering attempts detected'
 });
 register.registerMetric(jwtTamperDetectedTotal);
+
+// ─────────────────────────────────────────────
+// AUDIT SERVICE & EVENT INGESTION METRICS
+// ─────────────────────────────────────────────
+export const securityEventSeverityCounter = new client.Counter({
+  name: 'iam_security_event_severity_total',
+  help: 'Total number of security events logged, categorized by severity',
+  labelNames: ['severity'],
+});
+register.registerMetric(securityEventSeverityCounter);
+
+export const securityEventsIngestedTotal = new client.Counter({
+  name: 'iam_security_events_ingested_total',
+  help: 'Total number of security events ingested',
+  labelNames: ['event_type', 'action', 'source'],
+});
+register.registerMetric(securityEventsIngestedTotal);
+
+
+export const riskScoreDistribution = riskScoreHistogram;
+
+export const riskScoreComputedTotal = new client.Counter({
+  name: 'iam_risk_score_computed_total',
+  help: 'Total risk scores computed',
+  labelNames: ['action', 'event_type', 'severity', 'status'],
+});
+register.registerMetric(riskScoreComputedTotal);
+
+export const escalateActionsTotal = new client.Counter({
+  name: 'iam_escalate_actions_total',
+  help: 'Total escalation actions triggered',
+});
+register.registerMetric(escalateActionsTotal);
+
+export const defenseEventsTriggeredTotal = new client.Counter({
+  name: 'iam_defense_events_triggered_total',
+  help: 'Total defense events triggered',
+  labelNames: ['action', 'event_type', 'severity', 'status'],
+});
+register.registerMetric(defenseEventsTriggeredTotal);
+
+export const streamConsumerLag = new client.Gauge({
+  name: 'iam_stream_consumer_lag',
+  help: 'Stream consumer lag per group',
+  labelNames: ['stream', 'group'],
+});
+register.registerMetric(streamConsumerLag);
+
+export const securityEventsProcessedTotal = new client.Counter({
+  name: 'iam_security_events_processed_total',
+  help: 'Total security events processed by workers',
+  labelNames: ['action', 'event_type', 'severity', 'status'],
+});
+register.registerMetric(securityEventsProcessedTotal);
+
+export const eventsProcessingLatencyMs = new client.Histogram({
+  name: 'iam_events_processing_latency_ms',
+  help: 'Latency of event processing in ms',
+  labelNames: ['worker'],
+  buckets: [5, 10, 50, 100, 500, 1000, 5000],
+});
+register.registerMetric(eventsProcessingLatencyMs);
+
+export const neo4jWriteTotal = new client.Counter({
+  name: 'iam_neo4j_write_total',
+  help: 'Total neo4j write operations',
+  labelNames: ['action', 'event_type', 'severity', 'status'],
+});
+register.registerMetric(neo4jWriteTotal);
+
+export const neo4jWriteLatencyMs = new client.Histogram({
+  name: 'iam_neo4j_write_latency_ms',
+  help: 'Latency of neo4j writes in ms',
+  buckets: [5, 10, 50, 100, 500, 1000, 5000],
+});
+register.registerMetric(neo4jWriteLatencyMs);
+
+export const neo4jFailedEventsQueueSize = new client.Counter({
+  name: 'iam_neo4j_failed_events_queue_size',
+  help: 'Number of failed neo4j events pushed to repair queue',
+});
+register.registerMetric(neo4jFailedEventsQueueSize);
+
+export const eventsInflightGauge = new client.Gauge({
+  name: 'iam_events_inflight_gauge',
+  help: 'Number of events currently inflight being processed',
+  labelNames: ['worker'],
+});
+register.registerMetric(eventsInflightGauge);
+
+export const processingBacklogSize = new client.Gauge({
+  name: 'iam_processing_backlog_size',
+  help: 'Size of processing backlog per stream',
+  labelNames: ['stream'],
+});
+register.registerMetric(processingBacklogSize);
+
+export const workerLastProcessedTimestamp = new client.Gauge({
+  name: 'iam_worker_last_processed_timestamp',
+  help: 'Timestamp of last processed event per worker',
+  labelNames: ['worker'],
+});
+register.registerMetric(workerLastProcessedTimestamp);
+
+export const workerAliveGauge = new client.Gauge({
+  name: 'iam_worker_alive_gauge',
+  help: 'Indicates if worker is alive',
+  labelNames: ['worker'],
+});
+register.registerMetric(workerAliveGauge);
+
+export const redisConnectionStatus = new client.Gauge({
+  name: 'iam_redis_connection_status',
+  help: 'Redis connection status (1 for connected)',
+});
+register.registerMetric(redisConnectionStatus);
+
+export const neo4jConnectionStatus = new client.Gauge({
+  name: 'iam_neo4j_connection_status',
+  help: 'Neo4j connection status (1 for connected)',
+});
+register.registerMetric(neo4jConnectionStatus);
 
 export { register };

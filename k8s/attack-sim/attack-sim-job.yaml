@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────
+# Attack Simulation Job — Rust-based CloudShield Attacker
+# Runs in the attack-sim namespace, targets backend-api
+# ─────────────────────────────────────────────────────────────
+
+# ── ServiceAccount ───────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: attack-sim-sa
+  namespace: attack-sim
+  labels:
+    app: attack-sim
+    project: cloud-iam-platform
+automountServiceAccountToken: false
+---
+# ── Job ──────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: attack-simulation
+  namespace: attack-sim
+  labels:
+    app: attack-sim
+    project: cloud-iam-platform
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: attack-sim
+        project: cloud-iam-platform
+    spec:
+      serviceAccountName: attack-sim-sa
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: attack-sim
+          image: cloud-iam-platform/attack-sim:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TARGET_URL
+              value: "http://backend-api.backend.svc.cluster.local:3000"
+            - name: ATTACK_MODE
+              value: "all"
+            - name: ATTACK_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: attack-sim-credentials
+                  key: ATTACK_EMAIL
+            - name: ATTACK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: attack-sim-credentials
+                  key: ATTACK_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL

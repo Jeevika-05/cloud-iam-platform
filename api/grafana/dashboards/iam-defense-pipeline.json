@@ -1,0 +1,126 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Active IP Bans",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "iam_active_bans_current",
+          "legendFormat": "Current",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Strikes Recorded vs Bans Triggered",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(iam_strikes_recorded_total[5m])) by (ip_type)",
+          "legendFormat": "Strikes ({{ip_type}})",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(iam_bans_triggered_total[5m])) by (ban_tier)",
+          "legendFormat": "Bans ({{ban_tier}})",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Blocked Requests by IP Type",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(iam_blocked_requests_total[5m])) by (ip_type)",
+          "legendFormat": "{{ip_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Defense Events Pipeline",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(iam_defense_events_triggered_total[5m])) by (action)",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Event Processing Pipeline",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(iam_event_worker_processed_total[5m])) by (result)",
+          "legendFormat": "Worker: {{result}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(iam_neo4j_ingestion_total[5m])) by (result)",
+          "legendFormat": "Neo4j: {{result}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Stream Lag & Backlog",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "iam_stream_consumer_lag",
+          "legendFormat": "Lag: {{stream}}/{{group}}",
+          "refId": "A"
+        },
+        {
+          "expr": "iam_processing_backlog_size",
+          "legendFormat": "Backlog: {{stream}}",
+          "refId": "B"
+        },
+        {
+          "expr": "dlq_size",
+          "legendFormat": "DLQ: {{stream}}",
+          "refId": "C"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["iam", "defense"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "IAM Platform — Defense & Pipeline",
+  "uid": "iam-defense-pipeline"
+}
