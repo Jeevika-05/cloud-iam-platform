@@ -5,7 +5,7 @@
  *
  * Naming convention:  resource:action
  *   resource = users, profile, sessions, analytics, audit, defense, metrics,
- *              sensitive, mfa
+ *              sensitive, mfa, security
  *   action   = list, read, update, delete, manage, view, setup, etc.
  *
  * These are the atomic capabilities that roles map to.
@@ -51,8 +51,7 @@ export const PERMISSIONS = Object.freeze({
   // ─────────────────────────────────────────────
   // Audit Events
   // ─────────────────────────────────────────────
-  AUDIT_VIEW_EVENTS:   'audit:view_events',
-  AUDIT_VIEW_DEFENSE:  'audit:view_defense',
+  AUDIT_VIEW:          'audit:view',
   AUDIT_DEBUG:         'audit:debug',
 
   // ─────────────────────────────────────────────
@@ -60,6 +59,11 @@ export const PERMISSIONS = Object.freeze({
   // ─────────────────────────────────────────────
   DEFENSE_MANAGE:      'defense:manage',
   METRICS_VIEW:        'metrics:view',
+
+  // ─────────────────────────────────────────────
+  // Attack Simulation (ADMIN-only)
+  // ─────────────────────────────────────────────
+  SECURITY_SIMULATE:   'security:simulate',
 
   // ─────────────────────────────────────────────
   // Sensitive Operations (MFA-gated via ABAC)

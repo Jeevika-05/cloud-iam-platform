@@ -15,13 +15,23 @@ export const verifyMfa = async (req, res, next) => {
   try {
     const { code } = req.body;
 
-    // 🔒 Validate MFA code format (must be 6-digit numeric)
     if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
       throw new AppError('MFA code must be a 6-digit number', 400, 'INVALID_MFA_FORMAT');
     }
 
     await mfaService.verifyMfa(req.user.id, code);
     return successResponse(res, {}, 'MFA successfully enabled');
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const disableMfa = async (req, res, next) => {
+  try {
+    const { totpCode, password } = req.body;
+
+    await mfaService.disableMfa(req.user.id, { totpCode, password });
+    return successResponse(res, {}, 'MFA disabled successfully');
   } catch (err) {
     next(err);
   }

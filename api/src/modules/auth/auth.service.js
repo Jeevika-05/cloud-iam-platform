@@ -557,6 +557,7 @@ export const getProfile = async (userId) => {
       name: true,
       email: true,
       role: true,
+      totpEnabled: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -565,6 +566,31 @@ export const getProfile = async (userId) => {
   if (!user) {
     throw new AppError('User not found', 404, 'NOT_FOUND');
   }
+
+  return user;
+};
+
+// ─────────────────────────────────────────────
+// UPDATE PROFILE
+// ─────────────────────────────────────────────
+export const updateProfile = async (userId, { name }) => {
+  if (!name || typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 100) {
+    throw new AppError('Name must be between 2 and 100 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { name: name.trim() },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      totpEnabled: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 
   return user;
 };
@@ -585,6 +611,9 @@ export const getActiveSessions = async (userId) => {
       ipAddress: true,
       createdAt: true,
       expiresAt: true,
+      updatedAt: true,
+      mfaVerified: true,
+      lastUsedAt: true,
     },
     orderBy: { createdAt: 'desc' },
   });

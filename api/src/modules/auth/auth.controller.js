@@ -4,12 +4,13 @@ import * as googleAuthService from './googleAuth.service.js';
 import { successResponse } from '../../shared/utils/response.js';
 import { loginCounter, mfaCounter, loginDuration } from '../../metrics/metrics.js';
 import { app as appConfig } from '../../shared/config/index.js';
+import AppError from '../../shared/utils/AppError.js';
 
 // Cookie config (reuse everywhere)
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: appConfig.isProduction,
-  sameSite: 'strict',
+  sameSite: 'lax',
   path: '/api/v1/auth', // restrict cookie scope
 };
 
@@ -24,11 +25,10 @@ export const googleCallback = async (req, res, next) => {
   try {
     const { code } = req.query;
     if (!code) {
-      // In case they pass purely the ID token natively from a frontend SDK, support it natively
       const idTokenHeader = req.headers['x-google-id-token'];
       if (!idTokenHeader || typeof idTokenHeader !== 'string') throw new Error('Authorization code missing');
       if (idTokenHeader.length > 4096) throw new Error('ID token too large');
-      req.query.idToken = idTokenHeader; // Forward for explicit manual flow handling below
+      req.query.idToken = idTokenHeader;
     }
 
     const idToken = req.query.idToken || (await googleAuthService.exchangeCodeForIdToken(code));
@@ -48,11 +48,14 @@ export const googleCallback = async (req, res, next) => {
     }
 
     res.cookie('refreshToken', result.refreshToken, {
-      ...REFRESH_COOKIE_OPTIONS,
-      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/v1/auth'
     });
 
-    return successResponse(res, { accessToken: result.accessToken, user: result.user }, 'Google login successful');
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    return res.redirect(`${frontendUrl}/auth/callback`);
   } catch (err) {
     next(err);
   }
@@ -136,12 +139,11 @@ export const validateMfaLogin = async (req, res, next) => {
   try {
     const { code, tempToken } = req.body;
 
-    // 🔒 Validate inputs
     if (!tempToken || typeof tempToken !== 'string') {
-      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'tempToken is required' });
+      throw new AppError('tempToken is required', 400, 'VALIDATION_ERROR');
     }
     if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
-      return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'MFA code must be a 6-digit number' });
+      throw new AppError('MFA code must be a 6-digit number', 400, 'VALIDATION_ERROR');
     }
 
     const result = await authService.validateMfaLogin({
@@ -231,6 +233,25 @@ export const getProfile = async (req, res, next) => {
     const user = await authService.getProfile(req.user.id);
 
     return successResponse(res, { user }, 'Profile retrieved');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─────────────────────────────────────────────
+// UPDATE PROFILE
+// ─────────────────────────────────────────────
+export const updateProfile = async (req, res, next) => {
+  try {
+    const { name } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      throw new AppError('Invalid name', 400, 'VALIDATION_ERROR');
+    }
+
+    const user = await authService.updateProfile(req.user.id, { name: name.trim() });
+
+    return successResponse(res, { user }, 'Profile updated');
   } catch (err) {
     next(err);
   }

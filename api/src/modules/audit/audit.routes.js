@@ -148,7 +148,7 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
 // GENERAL EVENTS — Auth + RBAC + Permission required
 // Chain: authenticate → authorizeRoles → requirePermission → handler
 // ─────────────────────────────────────────────
-router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'), requirePermission('audit:view_events'), async (req, res) => {
+router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'), requirePermission('audit:view'), async (req, res) => {
   try {
     const {
       event_type,
@@ -156,7 +156,6 @@ router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'),
       since,
       limit = '500',
       offset = '0',
-      format = 'neo4j',
     } = req.query;
 
     const take = Math.min(parseInt(limit, 10) || 500, 5000);
@@ -165,8 +164,6 @@ router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'),
     const where = {};
     if (action) where.action = action;
     if (since) where.createdAt = { gte: new Date(since) };
-    // Push event_type filter to the DB via Prisma JSON path query —
-    // avoids a full in-process scan of the metadata column.
     if (event_type) {
       where.metadata = { path: ['event_type'], equals: event_type };
     }
@@ -181,59 +178,48 @@ router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'),
       },
     });
 
-    const filtered = logs;
-
-    if (format === 'neo4j') {
-      const events = filtered.map((log) => {
-        const meta = log.metadata || {};
-        return {
-          event_id: meta.event_id || log.id,
-          correlation_id: meta.correlation_id || log.id,
-          user_id: log.userId || meta.user_id || 'SYSTEM',
-          user_email: log.user?.email || meta.user_email || null,
-          session_id: meta.session_id || null,
-          event_type: meta.event_type || 'SECURITY',
-          action: log.action,
-          source_ip: log.ip || meta.source_ip || 'unknown',
-          ip_type: meta.ip_type || 'REAL',
-          user_agent: log.userAgent || meta.user_agent || 'unknown',
-          agent_type: meta.agent_type || 'REAL',
-          target_type: meta.target_type || 'API',
-          target_endpoint: meta.target_endpoint || meta.path || 'internal',
-          result: meta.result || log.status,
-          severity: meta.severity || 'LOW',
-          risk_score: meta.risk_score ?? null,
-          risk_level: meta.risk_level ?? null,
-          timestamp: meta.timestamp || log.createdAt.toISOString(),
-          ...(meta.event_type === 'DEFENSE' && {
-            mode: meta.mode,
-            reason: meta.reason,
-            strike_count: meta.strike_count,
-            ban_duration: meta.ban_duration,
-            ban_number: meta.ban_number,
-            total_strikes: meta.total_strikes,
-          }),
-        };
-      });
-
-      return res.json({
-        _metadata: {
-          source: 'audit_log_api',
-          total_returned: events.length,
-          offset: skip,
-          limit: take,
-          filter: { event_type, action, since },
-          generated_at: new Date().toISOString(),
-        },
-        events,
-      });
-    }
+    const events = logs.map((log) => {
+      const meta = log.metadata || {};
+      return {
+        event_id: meta.event_id || log.id,
+        correlation_id: meta.correlation_id || log.id,
+        user_id: log.userId || meta.user_id || 'SYSTEM',
+        user_email: log.user?.email || meta.user_email || null,
+        session_id: meta.session_id || null,
+        event_type: meta.event_type || 'SECURITY',
+        action: log.action,
+        source_ip: log.ip || meta.source_ip || 'unknown',
+        ip_type: meta.ip_type || 'REAL',
+        user_agent: log.userAgent || meta.user_agent || 'unknown',
+        agent_type: meta.agent_type || 'REAL',
+        target_type: meta.target_type || 'API',
+        target_endpoint: meta.target_endpoint || meta.path || 'internal',
+        result: meta.result || log.status,
+        severity: meta.severity || 'LOW',
+        risk_score: meta.risk_score ?? null,
+        risk_level: meta.risk_level ?? null,
+        timestamp: meta.timestamp || log.createdAt.toISOString(),
+        ...(meta.event_type === 'DEFENSE' && {
+          mode: meta.mode,
+          reason: meta.reason,
+          strike_count: meta.strike_count,
+          ban_duration: meta.ban_duration,
+          ban_number: meta.ban_number,
+          total_strikes: meta.total_strikes,
+        }),
+      };
+    });
 
     return res.json({
-      total: filtered.length,
-      offset: skip,
-      limit: take,
-      logs: filtered,
+      metadata: {
+        source: 'audit_log_api',
+        total_returned: events.length,
+        offset: skip,
+        limit: take,
+        filter: { event_type, action, since },
+        generated_at: new Date().toISOString(),
+      },
+      events,
     });
   } catch (error) {
     logger.error('AUDIT_EVENTS_QUERY_FAILED', { error: error.message });
@@ -245,4 +231,4 @@ router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'),
   }
 });
 
-export default router;
+export default router;

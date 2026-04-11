@@ -1,8 +1,13 @@
 node_modules/
 .env
+.env.*
+*.env
 dist/
 coverage/
 *.log
 .DS_Store
 keys/
 k8s/    
+api/secrets/
+api/.env
+api/.env.backup

@@ -46,13 +46,15 @@ export const ROLE_PERMISSIONS = Object.freeze({
     P.ANALYTICS_INTERNAL,
 
     // Audit
-    P.AUDIT_VIEW_EVENTS,
-    P.AUDIT_VIEW_DEFENSE,
+    P.AUDIT_VIEW,
     P.AUDIT_DEBUG,
 
     // Security operations
     P.DEFENSE_MANAGE,
     P.METRICS_VIEW,
+
+    // Attack simulation — ADMIN only
+    P.SECURITY_SIMULATE,
 
     // Sensitive (still requires MFA via ABAC)
     P.SENSITIVE_MODIFY,
@@ -80,7 +82,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
     P.ANALYTICS_VIEW,
 
     // Audit — read events for investigation
-    P.AUDIT_VIEW_EVENTS,
+    P.AUDIT_VIEW,
 
     // Metrics — view Prometheus dashboards
     P.METRICS_VIEW,

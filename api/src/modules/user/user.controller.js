@@ -7,11 +7,11 @@ import { successResponse } from '../../shared/utils/response.js';
 // ─────────────────────────────────────────────
 export const getAllUsers = async (req, res, next) => {
   try {
-    const page  = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 100);
-    const role  = req.query.role;
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 100);
+    const { role, search } = req.query;
 
-    const result = await userService.getAllUsers({ page, limit, role });
+    const result = await userService.getAllUsers({ page, limit, role, search });
 
     return successResponse(res, result, 'Users retrieved');
 

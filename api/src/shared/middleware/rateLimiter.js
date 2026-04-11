@@ -27,7 +27,7 @@ export const authLimiter = rateLimit({
     sendCommand: (...args) => redisClient.call(...args),
   }),
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 10,
   keyGenerator: (req) => `${extractClientInfo(req).ip}-${req.body?.email || 'anonymous'}`,
   handler: (req, res, next, options) => {
     rateLimitCounter.inc({ type: 'auth' });

@@ -9,10 +9,9 @@ const ALLOWED_ROLES = ['USER', 'ADMIN', 'SECURITY_ANALYST'];
 // ───────────────────────────────────────────────────────────
 // GET ALL USERS (PAGINATED)
 // ───────────────────────────────────────────────────────────
-export const getAllUsers = async ({ page = 1, limit = 20, role } = {}) => {
-  // 🔐 Sanitize inputs
+export const getAllUsers = async ({ page = 1, limit = 20, role, search } = {}) => {
   page = Math.max(1, parseInt(page));
-  limit = Math.min(100, Math.max(1, parseInt(limit))); // cap to prevent abuse
+  limit = Math.min(100, Math.max(1, parseInt(limit)));
 
   const skip = (page - 1) * limit;
 
@@ -20,7 +19,15 @@ export const getAllUsers = async ({ page = 1, limit = 20, role } = {}) => {
     throw new AppError('Invalid role filter', 400, 'VALIDATION_ERROR');
   }
 
-  const where = role ? { role } : {};
+  const where = {};
+  if (role) where.role = role;
+  if (search && typeof search === 'string' && search.trim()) {
+    const term = search.trim();
+    where.OR = [
+      { name:  { contains: term, mode: 'insensitive' } },
+      { email: { contains: term, mode: 'insensitive' } },
+    ];
+  }
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({

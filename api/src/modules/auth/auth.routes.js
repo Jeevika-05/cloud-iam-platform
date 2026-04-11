@@ -45,6 +45,15 @@ router.get(
   authController.getProfile
 );
 
+// Own profile update
+router.patch(
+  '/profile',
+  authenticate,
+  apiLimiter,
+  requirePermission('profile:update'),
+  authController.updateProfile
+);
+
 // ─────────────────────────────────────────────
 // Session management (IAM)
 // Chain: authenticate → requirePermission → [validate] → handler

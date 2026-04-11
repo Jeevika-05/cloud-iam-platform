@@ -437,4 +437,14 @@ export const neo4jConnectionStatus = new client.Gauge({
 });
 register.registerMetric(neo4jConnectionStatus);
 
+// ─────────────────────────────────────────────
+// ATTACK SIMULATION METRICS
+// ─────────────────────────────────────────────
+export const attackSimulationCounter = new client.Counter({
+  name: 'iam_attack_simulations_total',
+  help: 'Total attack simulations triggered via the security module',
+  labelNames: ['type', 'status'],
+});
+register.registerMetric(attackSimulationCounter);
+
 export { register };
