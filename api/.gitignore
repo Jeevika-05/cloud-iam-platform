@@ -6,7 +6,7 @@ dist/
 coverage/
 *.log
 .DS_Store
-api/keys/
+keys/
 k8s/    
 secrets/
 .env*
