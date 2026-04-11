@@ -35,8 +35,16 @@ client.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Check if the error is due to an expired token
-    if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest._retry) {
+    // Route permissions (403 Forbidden)
+    if (error.response?.status === 403 || error.response?.data?.code === 'PERMISSION_DENIED') {
+      window.dispatchEvent(new CustomEvent('auth:forbidden'));
+      return Promise.reject({
+        message: 'Access denied',
+        code: 'PERMISSION_DENIED',
+        status: 403
+      });
+    } else if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest._retry) {
+      // Check if the error is due to an expired token
       originalRequest._retry = true;
 
       try {
@@ -48,12 +56,23 @@ client.interceptors.response.use(
 
         return client(originalRequest);
       } catch (refreshError) {
-        // If refresh fails, we would typically log out or clear session here.
-        return Promise.reject(refreshError);
+        // If refresh fails, normalize the refresh error
+        const refreshData = refreshError.response?.data || {};
+        return Promise.reject({
+          message: refreshData.message || 'Session expired',
+          code: refreshData.code || 'SESSION_EXPIRED',
+          status: refreshError.response?.status || 401
+        });
       }
     }
 
-    return Promise.reject(error);
+    // Global Error Normalization
+    const errorData = error.response?.data || {};
+    return Promise.reject({
+      message: errorData.message || error.message || 'Something went wrong',
+      code: errorData.code || 'UNKNOWN_ERROR',
+      status: error.response?.status || 500
+    });
   }
 );
 

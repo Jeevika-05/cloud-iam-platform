@@ -1,5 +1,5 @@
 import * as securityService from './security.service.js';
-import { successResponse } from '../../shared/utils/response.js';
+import { successResponse, errorResponse } from '../../shared/utils/response.js';
 
 // ─────────────────────────────────────────────
 // GET /api/v1/security/attacks
@@ -26,11 +26,7 @@ export const simulate = async (req, res, next) => {
 
     // Body-level validation — service validates enum membership
     if (!type || typeof type !== 'string') {
-      return res.status(400).json({
-        success: false,
-        code: 'VALIDATION_ERROR',
-        message: '"type" is required and must be a string',
-      });
+      return errorResponse(res, '"type" is required and must be a string', 400, 'VALIDATION_ERROR');
     }
 
     const result = await securityService.runSimulation({

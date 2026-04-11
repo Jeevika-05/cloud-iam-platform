@@ -8,6 +8,6 @@ coverage/
 .DS_Store
 api/keys/
 k8s/    
-api/secrets/
+secrets/
 .env*
 !.env.example

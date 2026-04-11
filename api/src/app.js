@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import { apiLimiter, internalLimiter } from './shared/middleware/rateLimiter.js';
+import correlationId from './shared/middleware/correlationId.js';
 import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
@@ -17,6 +18,9 @@ import mfaRoutes from './modules/auth/mfa.routes.js';
 import auditRoutes from './modules/audit/audit.routes.js';
 import rbacRoutes from './modules/rbac/rbac.routes.js';
 import securityRoutes from './modules/security/security.routes.js';
+import metricsRoutes from './modules/metrics/metrics.routes.js';
+import graphRoutes from './modules/graph/graph.routes.js';
+import { successResponse, errorResponse } from './shared/utils/response.js';
 
 import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.js';
 import { authenticate } from './shared/middleware/authenticate.js';
@@ -36,11 +40,7 @@ app.set('trust proxy', 1);
 // ─────────────────────────────────────────────
 // CORRELATION ID (for tracing and neo4j generation)
 // ─────────────────────────────────────────────
-app.use((req, res, next) => {
-  req.correlationId = req.headers['x-correlation-id'] || randomUUID();
-  res.setHeader('x-correlation-id', req.correlationId);
-  next();
-});
+app.use(correlationId);
 
 // ─────────────────────────────────────────────
 // SECURITY HEADERS
@@ -103,18 +103,17 @@ const safePaths = ['/metrics', '/health'];
 app.use((req, res, next) => {
   if (safePaths.includes(req.path)) {
     if (req.method !== 'GET') {
-      return res.status(405).json({ error: 'Method Not Allowed' });
+      return errorResponse(res, 'Method Not Allowed', 405, 'METHOD_NOT_ALLOWED');
     }
   }
   next();
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({
+  return successResponse(res, {
     status: 'ok',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
+    uptime: process.uptime()
+  }, 'Service is healthy');
 });
 
 // 🔒 SEC-RBAC: Metrics endpoint restricted to internal service access only.
@@ -145,7 +144,7 @@ if (activeDefenseConfig.enabled) {
 // ─────────────────────────────────────────────
 // RATE LIMITING
 // ─────────────────────────────────────────────
-app.use(apiLimiter);
+app.use('/api/v1', apiLimiter);
 
 // ─────────────────────────────────────────────
 // GLOBAL REQUEST TRACKING (Prometheus)
@@ -186,6 +185,8 @@ app.use('/api/v1/analytics', authenticate, analyticsRoutes);
 app.use('/api/v1/audit', auditRoutes);
 app.use('/api/v1/rbac', rbacRoutes);
 app.use('/api/v1/security', securityRoutes);
+app.use('/api/v1/metrics', metricsRoutes);
+app.use('/api/v1/graph', graphRoutes);
 
 // ─────────────────────────────────────────────
 // INTERNAL ROUTES — Zero Trust (service-to-service only)

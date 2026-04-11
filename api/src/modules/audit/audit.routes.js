@@ -14,6 +14,7 @@ import { internalAuth } from '../../shared/middleware/internalAuth.js';
 import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
 import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
+import { getAuditEvents } from '../auth/audit.service.js';
 
 const router = Router();
 
@@ -51,7 +52,7 @@ router.get('/debug/counts', internalLimiter, internalAuth, async (req, res) => {
       event_type: l.metadata?.event_type || 'unknown',
     }));
 
-    return res.json({
+    return successResponse(res, {
       total_audit_logs: totalAuditLogs,
       defense_events: {
         STRIKE_RECORDED: strikeRecorded,
@@ -61,10 +62,10 @@ router.get('/debug/counts', internalLimiter, internalAuth, async (req, res) => {
         total: strikeRecorded + ipBanned + blockedBannedIp + blockedRequest,
       },
       recent_events: recentActions,
-    });
+    }, 'Audit counts retrieved successfully');
   } catch (error) {
     logger.error('AUDIT_DEBUG_FAILED', { error: error.message });
-    return res.status(500).json({ error: error.message });
+    return errorResponse(res, error.message, 500, 'AUDIT_DEBUG_FAILED');
   }
 });
 
@@ -125,7 +126,7 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
       };
     });
 
-    return res.json({
+    return successResponse(res, {
       _metadata: {
         source: 'audit_defense_api',
         total_events: events.length,
@@ -133,14 +134,10 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
         generated_at: new Date().toISOString(),
       },
       events,
-    });
+    }, 'Defense events retrieved successfully');
   } catch (error) {
     logger.error('AUDIT_DEFENSE_QUERY_FAILED', { error: error.message });
-    return res.status(500).json({
-      success: false,
-      code: 'AUDIT_QUERY_ERROR',
-      message: 'Failed to query defense events',
-    });
+    return errorResponse(res, 'Failed to query defense events', 500, 'AUDIT_QUERY_ERROR');
   }
 });
 
@@ -148,86 +145,34 @@ router.get('/events/defense', internalLimiter, internalAuth, async (req, res) =>
 // GENERAL EVENTS — Auth + RBAC + Permission required
 // Chain: authenticate → authorizeRoles → requirePermission → handler
 // ─────────────────────────────────────────────
-router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST'), requirePermission('audit:view'), async (req, res) => {
+router.get('/events', authenticate, authorizeRoles('ADMIN', 'SECURITY_ANALYST', 'USER'), requirePermission('audit:view'), async (req, res) => {
   try {
-    const {
-      event_type,
-      action,
-      since,
-      limit = '500',
-      offset = '0',
-    } = req.query;
-
-    const take = Math.min(parseInt(limit, 10) || 500, 5000);
-    const skip = parseInt(offset, 10) || 0;
-
-    const where = {};
-    if (action) where.action = action;
-    if (since) where.createdAt = { gte: new Date(since) };
-    if (event_type) {
-      where.metadata = { path: ['event_type'], equals: event_type };
-    }
-
-    const logs = await prisma.auditLog.findMany({
-      where,
-      orderBy: { createdAt: 'asc' },
-      take,
-      skip,
-      include: {
-        user: { select: { email: true } },
-      },
+    const events = await getAuditEvents({ 
+      user: req.user, 
+      filters: req.query 
     });
 
-    const events = logs.map((log) => {
-      const meta = log.metadata || {};
-      return {
-        event_id: meta.event_id || log.id,
-        correlation_id: meta.correlation_id || log.id,
-        user_id: log.userId || meta.user_id || 'SYSTEM',
-        user_email: log.user?.email || meta.user_email || null,
-        session_id: meta.session_id || null,
-        event_type: meta.event_type || 'SECURITY',
-        action: log.action,
-        source_ip: log.ip || meta.source_ip || 'unknown',
-        ip_type: meta.ip_type || 'REAL',
-        user_agent: log.userAgent || meta.user_agent || 'unknown',
-        agent_type: meta.agent_type || 'REAL',
-        target_type: meta.target_type || 'API',
-        target_endpoint: meta.target_endpoint || meta.path || 'internal',
-        result: meta.result || log.status,
-        severity: meta.severity || 'LOW',
-        risk_score: meta.risk_score ?? null,
-        risk_level: meta.risk_level ?? null,
-        timestamp: meta.timestamp || log.createdAt.toISOString(),
-        ...(meta.event_type === 'DEFENSE' && {
-          mode: meta.mode,
-          reason: meta.reason,
-          strike_count: meta.strike_count,
-          ban_duration: meta.ban_duration,
-          ban_number: meta.ban_number,
-          total_strikes: meta.total_strikes,
-        }),
-      };
-    });
+    const limit = parseInt(req.query.limit, 10) || 500;
+    const skip = parseInt(req.query.offset, 10) || 0;
 
-    return res.json({
+    return successResponse(res, {
       metadata: {
         source: 'audit_log_api',
         total_returned: events.length,
         offset: skip,
-        limit: take,
-        filter: { event_type, action, since },
+        limit: limit,
+        filter: { 
+          event_type: req.query.event_type, 
+          action: req.query.action, 
+          since: req.query.since 
+        },
         generated_at: new Date().toISOString(),
       },
       events,
-    });
+    }, 'Audit events retrieved successfully');
   } catch (error) {
     logger.error('AUDIT_EVENTS_QUERY_FAILED', { error: error.message });
-    return res.status(500).json({
-      success: false,
-      code: 'AUDIT_QUERY_ERROR',
-      message: 'Failed to query audit events',
-    });
+    return errorResponse(res, 'Failed to query audit events', 500, 'AUDIT_QUERY_ERROR');
   }
 });
 

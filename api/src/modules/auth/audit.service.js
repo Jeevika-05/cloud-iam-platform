@@ -1,5 +1,6 @@
 import logger from '../../shared/utils/logger.js';
 import crypto from 'crypto';
+import prisma from '../../shared/config/database.js';
 
 import redisClient from '../../shared/config/redis.js';
 import { classifyIp } from '../../shared/utils/ipClassifier.js';
@@ -177,10 +178,12 @@ const inferSeverity = (status) => {
 export const logSecurityEvent = async (payload) => {
   // FIX: event_group_id is deprecated — only correlation_id is canonical.
   // Destructure it out so it never leaks into mergedMeta or triggeringEvent.
-  const { userId, action, status, ip, userAgent, metadata, event_type, source_ip, sessionId, event_group_id: _deprecated, ...restOfPayload } = payload;
+  const { userId, action, status, ip, userAgent, metadata, event_type, source_ip, sessionId, event_group_id: _deprecated, role, ...restOfPayload } = payload;
   const resolvedIp = ip || source_ip;
   const resolvedStatus = status || payload.result || 'SUCCESS';
   const resolvedEventType = event_type || metadata?.event_type || 'SECURITY';
+
+  const finalRole = role || metadata?.role || 'anonymous';
 
   const metaJson = metadata ? JSON.parse(JSON.stringify(metadata)) : {};
   const mergedMeta = { ...metaJson, ...restOfPayload, event_type: resolvedEventType };
@@ -238,6 +241,7 @@ export const logSecurityEvent = async (payload) => {
       event_id:        crypto.randomUUID(),
       correlation_id:  correlationId,
       user_id:         userId || 'SYSTEM',
+      role:            finalRole,
       user_email:      mergedMeta?.user_email || null,
       session_id:      sessionId || mergedMeta?.jti || null,
       event_type:      resolvedEventType,
@@ -306,4 +310,86 @@ export const logSecurityEvent = async (payload) => {
       source_ip: resolvedIp,
     });
   }
+};
+
+// ─────────────────────────────────────────────
+// QUERY SERVICE WITH IMPLICIT RBAC ENFORCEMENT
+// ─────────────────────────────────────────────
+export const getAuditEvents = async ({ user, filters = {} }) => {
+  const { event_type, action, since, limit, offset } = filters;
+  
+  const take = Math.min(parseInt(limit, 10) || 500, 5000);
+  const skip = parseInt(offset, 10) || 0;
+
+  const andFilters = [];
+
+  if (user?.role === 'USER') {
+    andFilters.push({ userId: user.id });
+  } else if (user?.role === 'SECURITY_ANALYST') {
+    andFilters.push({
+      OR: [
+        { metadata: { path: ['event_type'], equals: 'ATTACK' } },
+        { metadata: { path: ['event_type'], equals: 'DEFENSE' } }
+      ]
+    });
+  }
+
+  if (action) {
+    andFilters.push({ action });
+  }
+  
+  if (since) {
+    andFilters.push({ createdAt: { gte: new Date(since) } });
+  }
+  
+  if (event_type) {
+    andFilters.push({
+      metadata: { path: ['event_type'], equals: event_type }
+    });
+  }
+
+  const where = andFilters.length > 0 ? { AND: andFilters } : {};
+
+  const logs = await prisma.auditLog.findMany({
+    where,
+    orderBy: { createdAt: 'asc' },
+    take,
+    skip,
+    include: {
+      user: { select: { email: true } },
+    },
+  });
+
+  return logs.map((log) => {
+    const meta = log.metadata || {};
+    return {
+      event_id: meta.event_id || log.id,
+      correlation_id: meta.correlation_id || log.id,
+      user_id: log.userId || meta.user_id || 'SYSTEM',
+      role: meta.role || 'anonymous',
+      user_email: log.user?.email || meta.user_email || null,
+      session_id: meta.session_id || null,
+      event_type: meta.event_type || 'SECURITY',
+      action: log.action,
+      source_ip: log.ip || meta.source_ip || 'unknown',
+      ip_type: meta.ip_type || 'REAL',
+      user_agent: log.userAgent || meta.user_agent || 'unknown',
+      agent_type: meta.agent_type || 'REAL',
+      target_type: meta.target_type || 'API',
+      target_endpoint: meta.target_endpoint || meta.path || 'internal',
+      result: meta.result || log.status,
+      severity: meta.severity || 'LOW',
+      risk_score: meta.risk_score ?? null,
+      risk_level: meta.risk_level ?? null,
+      timestamp: meta.timestamp || log.createdAt.toISOString(),
+      ...(meta.event_type === 'DEFENSE' && {
+        mode: meta.mode,
+        reason: meta.reason,
+        strike_count: meta.strike_count,
+        ban_duration: meta.ban_duration,
+        ban_number: meta.ban_number,
+        total_strikes: meta.total_strikes,
+      }),
+    };
+  });
 };

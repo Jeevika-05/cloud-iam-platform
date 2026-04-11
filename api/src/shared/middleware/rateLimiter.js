@@ -15,10 +15,12 @@ export const apiLimiter = rateLimit({
   max: appConfig.isProduction ? 100 : 50,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { success: false, message: 'Too many requests' },
   keyGenerator: (req) => extractClientInfo(req).ip,
   handler: (req, res, next, options) => {
     rateLimitCounter.inc({ type: 'api' });
-    res.status(options.statusCode).send(options.message);
+    res.setHeader('X-RateLimit-Error', 'Too many requests');
+    res.status(options.statusCode).json(options.message);
   },
 });
 
@@ -28,10 +30,14 @@ export const authLimiter = rateLimit({
   }),
   windowMs: 15 * 60 * 1000,
   max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests' },
   keyGenerator: (req) => `${extractClientInfo(req).ip}-${req.body?.email || 'anonymous'}`,
   handler: (req, res, next, options) => {
     rateLimitCounter.inc({ type: 'auth' });
-    res.status(options.statusCode).send(options.message);
+    res.setHeader('X-RateLimit-Error', 'Too many requests');
+    res.status(options.statusCode).json(options.message);
   },
 });
 
@@ -76,7 +82,8 @@ export const mfaLimiter = rateLimit({
       // ignore and leave as mfa_ip
     }
     rateLimitCounter.inc({ type });
-    res.status(options.statusCode).send(options.message);
+    res.setHeader('X-RateLimit-Error', 'Too many requests');
+    res.status(options.statusCode).json(options.message);
   },
 });
 
@@ -98,7 +105,8 @@ export const internalLimiter = rateLimit({
     rateLimitCounter.inc({ type: 'internal' });
     // 🔒 SEC-16: Use structured logger instead of console.log
     logger.warn('INTERNAL_RATE_LIMITED', { ip: extractClientInfo(req).ip, path: req.originalUrl });
-    res.status(options.statusCode).send(options.message);
+    res.setHeader('X-RateLimit-Error', 'Too many requests');
+    res.status(options.statusCode).json(options.message);
   },
   message: {
     success: false,

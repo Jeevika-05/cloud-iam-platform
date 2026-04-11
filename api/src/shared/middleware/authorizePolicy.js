@@ -40,7 +40,8 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
 
            // 📋 AUDIT: Persist session hijack detection
            logSecurityEvent({
-             userId: req.user.id,
+             userId: req.user?.id,
+             role: req.user?.role,
              action: 'SESSION_HIJACK_DETECTED',
              status: 'FAILURE',
              ip: context.ip,
@@ -88,7 +89,8 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
 
         // 📋 AUDIT: Persist ABAC policy denial
         logSecurityEvent({
-          userId: req.user.id,
+          userId: req.user?.id,
+          role: req.user?.role,
           action: 'ABAC_ACCESS_DENIED',
           status: 'FAILURE',
           ip: clientInfo.ip,

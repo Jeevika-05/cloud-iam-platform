@@ -12,6 +12,7 @@ import {
   updateRoleRules,
   validate
 } from '../../shared/middleware/validate.js';
+import { successResponse } from '../../shared/utils/response.js';
 
 const router = Router();
 
@@ -119,10 +120,7 @@ internalRouter.get('/:id', internalLimiter, internalAuth, async (req, res, next)
       createdAt: user.createdAt,
     };
 
-    return res.status(200).json({
-      success: true,
-      data:    { user: safeUser },
-    });
+    return successResponse(res, { user: safeUser }, 'User retrieved successfully');
   } catch (err) {
     next(err);
   }

@@ -129,8 +129,9 @@ export const authorizeRoles = (...allowedRolesInput) => {
 
         // 📋 AUDIT: Persist RBAC denial for forensic analysis
         logSecurityEvent({
-          userId: req.user.id,
-          action: 'RBAC_ACCESS_DENIED',
+          userId: req.user?.id,
+          role: req.user?.role,
+          action: 'ROLE_ACCESS_DENIED',
           status: 'FAILURE',
           ip: clientInfo.ip,
           userAgent: clientInfo.userAgent,

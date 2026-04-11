@@ -1,7 +1,7 @@
-const successResponse = (res, data = {}, message = 'Success', statusCode = 200) => {
+const successResponse = (res, data = {}, message = 'Success', statusCode = 200, code = 'SUCCESS') => {
   return res.status(statusCode).json({
     success: true,
-    code: 'SUCCESS',
+    code,
     message,
     data,
     timestamp: new Date().toISOString(),
@@ -15,6 +15,10 @@ const errorResponse = (
   code = 'ERROR',
   errors = null
 ) => {
+  if (typeof statusCode !== 'number') {
+    throw new Error('Invalid statusCode passed to errorResponse');
+  }
+
   const response = {
     success: false,
     code,

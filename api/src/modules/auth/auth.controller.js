@@ -77,10 +77,7 @@ export const register = async (req, res, next) => {
       correlationId: req.correlationId
     });
 
-    return res.status(201).json({
-      success: true,
-      message: 'User registered successfully'
-    });
+    return successResponse(res, {}, 'User registered successfully');
   } catch (err) {
     next(err);
   }

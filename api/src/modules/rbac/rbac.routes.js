@@ -18,7 +18,7 @@ import { requirePermission } from '../../shared/middleware/requirePermission.js'
 import { ROLE_PERMISSIONS, roleHasPermission } from '../../shared/rbac/rolePermissions.js';
 import { PERMISSIONS } from '../../shared/rbac/permissions.js';
 import { ROLES } from '../../shared/middleware/authorizeRoles.js';
-import { successResponse } from '../../shared/utils/response.js';
+import { successResponse, errorResponse } from '../../shared/utils/response.js';
 
 const router = Router();
 
@@ -50,11 +50,7 @@ router.get('/check', (req, res) => {
   const { permission } = req.query;
 
   if (!permission) {
-    return res.status(400).json({
-      success: false,
-      code: 'MISSING_PARAM',
-      message: 'Query parameter "permission" is required',
-    });
+    return errorResponse(res, 'Query parameter "permission" is required', 400, 'MISSING_PARAM');
   }
 
   const role = req.user.role?.toUpperCase();

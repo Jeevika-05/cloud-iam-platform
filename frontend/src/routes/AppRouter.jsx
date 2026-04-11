@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 
 // Pages
 import Login from '../pages/Login';
@@ -11,20 +11,35 @@ import Sessions from '../pages/Sessions';
 import UsersPage from '../pages/Users';
 import AuditPage from '../pages/Audit';
 import SecuritySimulation from '../pages/SecuritySimulation';
+import AuthCallback from '../pages/AuthCallback';
 
 // Guards
 import ProtectedRoute from '../components/ProtectedRoute';
 import RoleGuard from '../components/RoleGuard';
+import Navbar from '../components/Navbar';
+
+const GlobalEventHandler = () => {
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    const handleForbidden = () => navigate('/forbidden', { replace: true });
+    window.addEventListener('auth:forbidden', handleForbidden);
+    return () => window.removeEventListener('auth:forbidden', handleForbidden);
+  }, [navigate]);
+  return null;
+};
 
 const AppRouter = () => {
   return (
     <BrowserRouter>
+      <GlobalEventHandler />
+      <Navbar />
       <Routes>
         {/* ── Public ──────────────────────────────────────────── */}
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/mfa" element={<MfaPage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
         {/* ── Protected: auth required ────────────────────────── */}
         <Route

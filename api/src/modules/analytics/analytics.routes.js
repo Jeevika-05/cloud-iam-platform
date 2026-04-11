@@ -5,7 +5,7 @@ import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import prisma from '../../shared/config/database.js';
-import { successResponse } from '../../shared/utils/response.js';
+import { successResponse, errorResponse } from '../../shared/utils/response.js';
 import logger from '../../shared/utils/logger.js';
 import { extractClientInfo } from '../../shared/utils/clientInfo.js';
 import { internal as internalConfig } from '../../shared/config/index.js';
@@ -73,10 +73,7 @@ router.get(
       const internalToken = internalConfig.serviceToken;
 
       if (!internalToken) {
-        return res.status(503).json({
-          success: false,
-          message: 'INTERNAL_SERVICE_TOKEN not configured — demo unavailable',
-        });
+        return errorResponse(res, 'INTERNAL_SERVICE_TOKEN not configured — demo unavailable', 503, 'SERVICE_UNAVAILABLE');
       }
 
       // Derive base URL from the current request so the demo works on any port
@@ -101,11 +98,7 @@ router.get(
     } catch (err) {
       // Surface readable errors from the downstream call
       if (err.response) {
-        return res.status(err.response.status).json({
-          success: false,
-          message: 'Internal service call failed',
-          downstream: err.response.data,
-        });
+        return errorResponse(res, 'Internal service call failed', err.response.status, 'INTERNAL_CALL_FAILED', { downstream: err.response.data });
       }
       next(err);
     }

@@ -145,17 +145,19 @@ export const requirePermission = (...requiredPermissions) => {
 
         // 📋 AUDIT: Persist permission denial for forensic analysis
         logSecurityEvent({
-          userId: req.user.id,
-          action: 'PERMISSION_DENIED',
+          userId: req.user?.id,
+          role: req.user?.role,
+          action: 'RBAC_DENIED',
           status: 'FAILURE',
+          resource: req.originalUrl,
           ip: clientInfo.ip,
           userAgent: clientInfo.userAgent,
           metadata: {
-            role: userRole,
+            correlationId: req.correlationId,
             requiredPermissions,
             missingPermissions: missingPerms,
             method: req.method,
-            path: req.originalUrl,
+            ip: req.ip,
           },
         });
 
@@ -183,6 +185,23 @@ export const requirePermission = (...requiredPermissions) => {
       requiredPermissions.forEach((permission) => {
         rbacAllowedTotal.inc({ role: userRole, permission, route });
       });
+
+      // 📋 AUDIT: Sampled success logging (5% sample rate to prevent log spam)
+      if (Math.random() < 0.05) {
+        // Fire-and-forget to avoid blocking the critical path
+        logSecurityEvent({
+          userId: req.user?.id,
+          role: req.user?.role,
+          action: 'RBAC_GRANTED',
+          status: 'SUCCESS',
+          resource: req.originalUrl,
+          metadata: {
+            correlationId: req.correlationId,
+            method: req.method,
+            ip: req.ip
+          }
+        }).catch(err => logger.error('Async audit log failed', { error: err.message }));
+      }
 
       next();
 
