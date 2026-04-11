@@ -70,7 +70,7 @@ export class EnvProvider {
 // ─────────────────────────────────────────────────────────────
 
 export class DockerSecretsProvider {
-  constructor(basePath = '/run/secrets') {
+  constructor(basePath = '/app/secrets') {
     this.basePath = basePath;
   }
 
@@ -92,13 +92,24 @@ export class DockerSecretsProvider {
    * @returns {Promise<string | undefined>}
    */
   async getSecret(key) {
-    const secretPath = path.join(this.basePath, key);
+    const keyMap = {
+      'JWT_KEY_KEY1_PRIVATE': '/app/secrets/key1_private.pem',
+      'JWT_KEY_KEY1_PUBLIC': '/app/secrets/key1_public.pem',
+      'JWT_KEY_KEY2_PRIVATE': '/app/secrets/key2_private.pem',
+      'JWT_KEY_KEY2_PUBLIC': '/app/secrets/key2_public.pem',
+      'JWT_PRIVATE_KEY': '/app/secrets/jwt_private.pem',
+      'JWT_PUBLIC_KEY': '/app/secrets/jwt_public.pem',
+      'ENCRYPTION_KEY_V1': '/app/secrets/encryption_v1.key',
+      'ENCRYPTION_KEY_V2': '/app/secrets/encryption_v2.key',
+    };
+    
+    const secretPath = keyMap[key] || path.join(this.basePath, key);
     try {
       const value = await fs.promises.readFile(secretPath, 'utf8');
       return value.trim();
     } catch (err) {
       if (err.code === 'ENOENT') {
-        throw new Error(`[PROVIDER ERROR] Docker secret file not found at ${secretPath} for key ${key}`);
+        return undefined;
       }
       logger.error('DOCKER_SECRETS_READ_FAILED', {
         key,

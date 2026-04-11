@@ -68,9 +68,6 @@ const GraphView = ({ darkMode = false }) => {
   }, [type, limit, severity]); // Update graph automatically on change
 
   const handleNodeClick = (node) => {
-    const distance = 80;
-    const distRatio = 1 + distance / Math.hypot(node.x, node.y);
-
     if (fgRef.current) {
       fgRef.current.centerAt(node.x, node.y, 1000);
       fgRef.current.zoom(2, 1000);

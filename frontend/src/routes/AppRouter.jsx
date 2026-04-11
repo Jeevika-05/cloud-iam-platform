@@ -103,6 +103,17 @@ const AppRouter = () => {
           }
         />
 
+        <Route
+          path="/forbidden"
+          element={
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+              <h2>403 — Access Denied</h2>
+              <p>You don't have permission to access this resource.</p>
+              <a href="/dashboard">Return to Dashboard</a>
+            </div>
+          }
+        />
+
         {/* ── Catch-all ───────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

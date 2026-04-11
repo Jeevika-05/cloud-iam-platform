@@ -55,6 +55,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
 
     // Attack simulation — ADMIN only
     P.SECURITY_SIMULATE,
+    P.SECURITY_VIEW,
 
     // Sensitive (still requires MFA via ABAC)
     P.SENSITIVE_MODIFY,
@@ -86,6 +87,9 @@ export const ROLE_PERMISSIONS = Object.freeze({
 
     // Metrics — view Prometheus dashboards
     P.METRICS_VIEW,
+
+    // Security — read-only view of attacks
+    P.SECURITY_VIEW,
   ]),
 
   // ─────────────────────────────────────────────
@@ -100,6 +104,9 @@ export const ROLE_PERMISSIONS = Object.freeze({
     // MFA self-service — all users can set up MFA
     P.MFA_SETUP,
     P.MFA_VERIFY,
+
+    // Audit — users can view their own activity feed
+    P.AUDIT_VIEW,
   ]),
 });
 

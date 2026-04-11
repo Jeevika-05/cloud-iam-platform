@@ -64,6 +64,7 @@ export const PERMISSIONS = Object.freeze({
   // Attack Simulation (ADMIN-only)
   // ─────────────────────────────────────────────
   SECURITY_SIMULATE:   'security:simulate',
+  SECURITY_VIEW:       'security:view',
 
   // ─────────────────────────────────────────────
   // Sensitive Operations (MFA-gated via ABAC)

@@ -24,6 +24,7 @@ import { successResponse, errorResponse } from './shared/utils/response.js';
 
 import { errorHandler, notFoundHandler } from './shared/middleware/errorHandler.js';
 import { authenticate } from './shared/middleware/authenticate.js';
+import { requirePermission } from './shared/middleware/requirePermission.js';
 import logger from './shared/utils/logger.js';
 import { register, requestCounter, httpResponseDuration, httpErrorRate } from './metrics/metrics.js';
 import { activeDefenseMiddleware } from './shared/middleware/activeDefender.js';
@@ -174,6 +175,18 @@ app.use((req, res, next) => {
   next();
 });
 
+
+// ─────────────────────────────────────────────
+// PROXY EMBED ROUTES
+// ─────────────────────────────────────────────
+app.get('/api/v1/dashboard/embed-url', authenticate, requirePermission('metrics:view'), (req, res) => {
+  const { dashboard } = req.query;
+  const grafanaBase = process.env.GRAFANA_URL || 'http://localhost:3001';
+
+  const url = `${grafanaBase}/d/${dashboard}?orgId=1&kiosk=tv`;
+
+  return successResponse(res, { url }, 'Embed URL retrieved');
+});
 
 // ─────────────────────────────────────────────
 // ROUTES

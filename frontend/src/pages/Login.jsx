@@ -19,7 +19,11 @@ const Login = () => {
       if (result.mfaRequired) {
         navigate('/mfa');
       } else if (result.success) {
-        navigate(from, { replace: true });
+        if (result.user?.role === 'ADMIN' && result.user?.totpEnabled === false) {
+          navigate('/profile', { replace: true });
+        } else {
+          navigate(from, { replace: true });
+        }
       }
     } catch (error) {
       console.error('Login error', error);

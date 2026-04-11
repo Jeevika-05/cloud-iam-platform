@@ -15,6 +15,7 @@ import { internalLimiter } from '../../shared/middleware/rateLimiter.js';
 import { authorizeRoles } from '../../shared/middleware/authorizeRoles.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import { getAuditEvents } from '../auth/audit.service.js';
+import { successResponse, errorResponse } from '../../shared/utils/response.js';
 
 const router = Router();
 

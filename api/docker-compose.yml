@@ -54,15 +54,14 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-      - ./secrets:/run/secrets:ro
-      - ./keys/key1/private.pem:/run/secrets/JWT_KEY_KEY1_PRIVATE:ro
-      - ./keys/key1/public.pem:/run/secrets/JWT_KEY_KEY1_PUBLIC:ro
-      - ./keys/key2/private.pem:/run/secrets/JWT_KEY_KEY2_PRIVATE:ro
-      - ./keys/key2/public.pem:/run/secrets/JWT_KEY_KEY2_PUBLIC:ro
-      - ./keys/jwt_private.pem:/run/secrets/JWT_PRIVATE_KEY:ro
-      - ./keys/jwt_public.pem:/run/secrets/JWT_PUBLIC_KEY:ro
-      - ./keys/encryption_v1.key:/run/secrets/ENCRYPTION_KEY_V1:ro
-      - ./keys/encryption_v2.key:/run/secrets/ENCRYPTION_KEY_V2:ro
+      - ./keys/key1/private.pem:/app/secrets/key1_private.pem:ro
+      - ./keys/key1/public.pem:/app/secrets/key1_public.pem:ro
+      - ./keys/key2/private.pem:/app/secrets/key2_private.pem:ro
+      - ./keys/key2/public.pem:/app/secrets/key2_public.pem:ro
+      - ./keys/jwt_private_final.pem:/app/secrets/jwt_private.pem:ro
+      - ./keys/jwt_public_final.pem:/app/secrets/jwt_public.pem:ro
+      - ./keys/encryption_v1.key:/app/secrets/encryption_v1.key:ro
+      - ./keys/encryption_v2.key:/app/secrets/encryption_v2.key:ro
     command: npm run dev
     networks:
       - backend
@@ -96,13 +95,14 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-      - ./secrets:/run/secrets:ro
-      - ./keys/key1/private.pem:/run/secrets/JWT_KEY_KEY1_PRIVATE:ro
-      - ./keys/key1/public.pem:/run/secrets/JWT_KEY_KEY1_PUBLIC:ro
-      - ./keys/key2/private.pem:/run/secrets/JWT_KEY_KEY2_PRIVATE:ro
-      - ./keys/key2/public.pem:/run/secrets/JWT_KEY_KEY2_PUBLIC:ro
-      - ./keys/encryption_v1.key:/run/secrets/ENCRYPTION_KEY_V1:ro
-      - ./keys/encryption_v2.key:/run/secrets/ENCRYPTION_KEY_V2:ro
+      - ./keys/key1/private.pem:/app/secrets/key1_private.pem:ro
+      - ./keys/key1/public.pem:/app/secrets/key1_public.pem:ro
+      - ./keys/key2/private.pem:/app/secrets/key2_private.pem:ro
+      - ./keys/key2/public.pem:/app/secrets/key2_public.pem:ro
+      - ./keys/jwt_private_final.pem:/app/secrets/jwt_private.pem:ro
+      - ./keys/jwt_public_final.pem:/app/secrets/jwt_public.pem:ro
+      - ./keys/encryption_v1.key:/app/secrets/encryption_v1.key:ro
+      - ./keys/encryption_v2.key:/app/secrets/encryption_v2.key:ro
     networks:
       - backend
 
@@ -127,13 +127,14 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-      - ./secrets:/run/secrets:ro
-      - ./keys/key1/private.pem:/run/secrets/JWT_KEY_KEY1_PRIVATE:ro
-      - ./keys/key1/public.pem:/run/secrets/JWT_KEY_KEY1_PUBLIC:ro
-      - ./keys/key2/private.pem:/run/secrets/JWT_KEY_KEY2_PRIVATE:ro
-      - ./keys/key2/public.pem:/run/secrets/JWT_KEY_KEY2_PUBLIC:ro
-      - ./keys/encryption_v1.key:/run/secrets/ENCRYPTION_KEY_V1:ro
-      - ./keys/encryption_v2.key:/run/secrets/ENCRYPTION_KEY_V2:ro
+      - ./keys/key1/private.pem:/app/secrets/key1_private.pem:ro
+      - ./keys/key1/public.pem:/app/secrets/key1_public.pem:ro
+      - ./keys/key2/private.pem:/app/secrets/key2_private.pem:ro
+      - ./keys/key2/public.pem:/app/secrets/key2_public.pem:ro
+      - ./keys/jwt_private_final.pem:/app/secrets/jwt_private.pem:ro
+      - ./keys/jwt_public_final.pem:/app/secrets/jwt_public.pem:ro
+      - ./keys/encryption_v1.key:/app/secrets/encryption_v1.key:ro
+      - ./keys/encryption_v2.key:/app/secrets/encryption_v2.key:ro
     networks:
       - backend
 
@@ -247,6 +248,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  frontend:
+    build:
+      context: ../frontend
+    container_name: iam-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - backend
+
 volumes:
   postgres_data:
   grafana_data:

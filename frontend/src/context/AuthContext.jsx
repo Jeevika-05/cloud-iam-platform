@@ -15,7 +15,7 @@ export const AuthProvider = ({ children }) => {
   const refreshToken = useCallback(async () => {
     try {
       const res = await authApi.refresh();
-      const { accessToken } = res.data.data;
+      const { accessToken } = res.data;
 
       setAccessToken(accessToken);
 
@@ -54,7 +54,7 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(accessToken);
     setUser(loggedInUser);
     setIsAuthenticated(true);
-    return { success: true };
+    return { success: true, user: loggedInUser };
   }, []);
 
   // ─── Logout ─────────────────────────────────────────────────────────────────

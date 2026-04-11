@@ -28,6 +28,7 @@ model User {
 
   tokenVersion Int     @default(0)
   totpSecret   String?
+  tempTotpSecret String?
   totpEnabled  Boolean @default(false)
 
   // PATCH 4: Add Timestamp Tracking

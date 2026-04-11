@@ -13,7 +13,7 @@ import useAuth from '../hooks/useAuth';
  *   <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
  */
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -27,6 +27,11 @@ const ProtectedRoute = ({ children }) => {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  // 🔒 Enforce MFA Setup for Administrators
+  if (user?.role === 'ADMIN' && user?.totpEnabled === false && location.pathname !== '/profile') {
+    return <Navigate to="/profile" replace />;
   }
 
   return children;

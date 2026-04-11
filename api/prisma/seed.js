@@ -29,6 +29,7 @@ async function main() {
       email:    'admin@example.com',
       role:     'ADMIN',
       password: DEFAULT_PASSWORDS.ADMIN,
+      totp:     true,
     },
     {
       name:     'Security Analyst',
@@ -52,13 +53,24 @@ async function main() {
   ];
 
   for (const userData of users) {
+    const email = userData.email.toLowerCase().trim();
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+
     const hashedPassword = await argon2.hash(userData.password, ARGON2_OPTIONS);
 
     let totpData = {};
-    if (userData.totp) {
-      const secret = speakeasy.generateSecret().base32;
+    let rawTotpSecret = null;
+    let otpauthUrl = null;
+
+    if (userData.totp && (!existingUser || !existingUser.totpEnabled)) {
+      const generated = speakeasy.generateSecret({
+        name: `Cloud IAM (${userData.email})`
+      });
+      rawTotpSecret = generated.base32;
+      otpauthUrl = generated.otpauth_url;
+
       const version = config.encryption.activeKeyVersion;
-      const encryptedSecret = encrypt(secret, version);
+      const encryptedSecret = encrypt(rawTotpSecret, version);
 
       totpData = {
         totpSecret: encryptedSecret,
@@ -68,7 +80,7 @@ async function main() {
     }
 
     const user = await prisma.user.upsert({
-      where:  { email: userData.email.toLowerCase().trim() },
+      where:  { email },
       update: {
         password: hashedPassword,
         ...totpData
@@ -84,6 +96,10 @@ async function main() {
 
 
     console.log(`✅ Seeded user: ${user.email} [${user.role}] (Argon2id)`);
+    if (rawTotpSecret && process.env.NODE_ENV !== 'production') {
+      console.log(`   🔐 MFA Provisioned! Manual Setup Key: ${rawTotpSecret}`);
+      console.log(`   📱 QR Setup URI: ${otpauthUrl}\n`);
+    }
   }
 }
 

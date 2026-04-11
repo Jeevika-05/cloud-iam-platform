@@ -13,7 +13,7 @@ export const setupMfa = async (req, res, next) => {
 
 export const verifyMfa = async (req, res, next) => {
   try {
-    const { code } = req.body;
+    const code = req.body.token || req.body.code;
 
     if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
       throw new AppError('MFA code must be a 6-digit number', 400, 'INVALID_MFA_FORMAT');

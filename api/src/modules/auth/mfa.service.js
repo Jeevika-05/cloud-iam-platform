@@ -15,23 +15,27 @@ export const setupMfa = async (userId) => {
 
   const qr = await qrcode.toDataURL(secret.otpauth_url);
 
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (user && user.totpEnabled) {
+    throw new AppError('MFA is already enabled. Please disable it first.', 400, 'MFA_ALREADY_ENABLED');
+  }
+
   // Store encrypted secret using active key version from config
   const version = encryption.activeKeyVersion;
-
   const encryptedSecret = encrypt(secret.base32, version);
 
   await prisma.user.update({
     where: { id: userId },
     data: { 
-      totpSecret: encryptedSecret, 
-      totpEnabled: false,
+      tempTotpSecret: encryptedSecret,
       totpSecretKeyVersion: version
     }
   });
 
   return {
-    qr,
-    // 🔒 SEC-10: manual plain-text key removed. Return ONLY QR/URI to prevent leakage.
+    qrCode: qr,
+    // Provide manual fallback key for frontend display during setup ONLY
+    secret: secret.base32,
     otpauth_url: secret.otpauth_url
   };
 };
@@ -39,23 +43,23 @@ export const setupMfa = async (userId) => {
 export const verifyMfa = async (userId, code) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   
-  if (!user || !user.totpSecret) {
-    throw new AppError('MFA secret not found. Setup first.', 400, 'MFA_NOT_SETUP');
+  if (!user) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
   }
 
-  if (user.totpSecret && !user.totpSecretKeyVersion) {
-    throw new AppError(
-      'Invalid encryption state',
-      500,
-      'CRYPTO_STATE_INVALID'
-    );
+  if (user.totpEnabled) {
+    throw new AppError('MFA is already enabled.', 400, 'MFA_ALREADY_ENABLED');
+  }
+
+  if (!user.tempTotpSecret) {
+    throw new AppError('MFA setup not initiated. Please call setup first.', 400, 'MFA_NOT_SETUP');
   }
 
   if (!user.totpSecretKeyVersion) {
     throw new AppError('MFA key version missing', 500, 'MFA_KEY_ERROR');
   }
 
-  const decryptedSecret = decrypt(user.totpSecret, user.totpSecretKeyVersion);
+  const decryptedSecret = decrypt(user.tempTotpSecret, user.totpSecretKeyVersion);
 
   const verified = speakeasy.totp.verify({
     secret: decryptedSecret,
@@ -75,7 +79,11 @@ export const verifyMfa = async (userId, code) => {
   // Finalize setup
   await prisma.user.update({
     where: { id: userId },
-    data: { totpEnabled: true },
+    data: { 
+      totpEnabled: true,
+      totpSecret: user.tempTotpSecret,
+      tempTotpSecret: null
+    },
   });
 
   await logSecurityEvent({

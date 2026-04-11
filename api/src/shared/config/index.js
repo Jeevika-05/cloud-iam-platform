@@ -154,12 +154,28 @@ async function loadJwtKeys() {
   // ── Auto-discover KID-based key pairs from env ──────────────
   // Note: JWT keys need to be strictly formatted via the provider.
   const kidPattern = /^JWT_KEY_(.+)_PRIVATE$/;
+  
+  // DockerSecretsProvider won't inject keys into process.env, so we union explicitly:
+  const discoveredKids = new Set();
   for (const envKey of Object.keys(process.env)) {
     const match = envKey.match(kidPattern);
-    if (!match) continue;
+    if (match) discoveredKids.add(match[1].toLowerCase());
+  }
+  
+  if (process.env.JWT_KIDS) {
+    process.env.JWT_KIDS.split(',').forEach(k => discoveredKids.add(k.trim().toLowerCase()));
+  }
 
-    const kid = match[1].toLowerCase();
-    const publicEnvKey = `JWT_KEY_${match[1]}_PUBLIC`;
+  // Always attempt to discover the active kid
+  const activeKidFallback = process.env.JWT_ACTIVE_KID || 'default';
+  if (activeKidFallback !== 'default') {
+    discoveredKids.add(activeKidFallback.toLowerCase());
+  }
+
+  for (const kid of discoveredKids) {
+    const kidUpper = kid.toUpperCase();
+    const publicEnvKey = `JWT_KEY_${kidUpper}_PUBLIC`;
+    const privateEnvKey = `JWT_KEY_${kidUpper}_PRIVATE`;
 
     if (!(await secretProvider.getSecret(publicEnvKey))) {
       throw new Error(
@@ -169,11 +185,11 @@ async function loadJwtKeys() {
 
     try {
       const privateKey = await loadRsaKey(
-        `JWT_KEY_${match[1]}_PRIVATE`,
+        privateEnvKey,
         `RSA private key for KID "${kid}"`
       );
       const publicKey = await loadRsaKey(
-        `JWT_KEY_${match[1]}_PUBLIC`,
+        publicEnvKey,
         `RSA public key for KID "${kid}"`
       );
 

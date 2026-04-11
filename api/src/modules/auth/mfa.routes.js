@@ -12,7 +12,7 @@ router.use(authenticate);
 router.post('/setup', requirePermission('mfa:setup'), mfaController.setupMfa);
 
 // Verify TOTP token — completes MFA setup or validates during login
-router.post('/verify', requirePermission('mfa:verify'), mfaController.verifyMfa);
+router.post('/verify', mfaLimiter, requirePermission('mfa:verify'), mfaController.verifyMfa);
 
 // Disable TOTP MFA — requires re-authentication (TOTP code or password in body)
 // mfaLimiter guards against brute-forcing the re-auth credentials

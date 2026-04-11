@@ -20,15 +20,15 @@ const ActivityFeed = () => {
         if (isMounted.current) setError(null);
       } catch (err) {
         if (isMounted.current) {
-          // Note: using function updater reliably checks exact length without needing outer closure mapping bounds
-          setEvents((prev) => {
-            if (!prev.length) setError('Failed to load activity feed.');
-            return prev;
-          });
+          setError(
+            err.status === 403 || err.response?.status === 403
+              ? 'You do not have permission to view activity.'
+              : 'Failed to load activity feed.'
+          );
         }
       } finally {
         if (isMounted.current) {
-          setLoading((prev) => (prev ? false : prev));
+          setLoading(false);
         }
       }
     };

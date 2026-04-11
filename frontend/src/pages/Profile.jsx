@@ -75,7 +75,14 @@ const Profile = () => {
         <p><strong>Name:</strong> {profile?.name || '—'}</p>
         <p><strong>Email:</strong> {profile?.email || '—'}</p>
         <p><strong>Role:</strong> {profile?.role || '—'}</p>
-        <p><strong>MFA:</strong> {profile?.totpEnabled ? 'Enabled' : 'Disabled'}</p>
+        <p>
+          <strong>MFA:</strong>{' '}
+          {profile?.totpEnabled ? (
+            <span style={{ color: 'green', fontWeight: 'bold' }}>MFA Enabled</span>
+          ) : (
+            <span style={{ color: 'orange', fontWeight: 'bold' }}>MFA Not Enabled</span>
+          )}
+        </p>
       </div>
 
       {/* MFA actions */}
@@ -93,14 +100,15 @@ const Profile = () => {
       {mfaSetup && (
         <div className="mfa-setup">
           <h3>Scan QR Code</h3>
+          <p>Scan QR using Google Authenticator</p>
           {mfaSetup.qrCode && (
-            <img src={mfaSetup.qrCode} alt="MFA QR Code" />
+            <img src={mfaSetup.qrCode} alt="MFA QR Code" style={{ display: 'block', margin: '10px 0' }} />
           )}
           {mfaSetup.secret && (
             <p><strong>Manual key:</strong> {mfaSetup.secret}</p>
           )}
-          <form onSubmit={handleVerifyMfa}>
-            <label>Enter code from app: </label>
+          <form onSubmit={handleVerifyMfa} style={{ marginTop: '20px' }}>
+            <label>Enter the 6-digit code to activate MFA: </label>
             <input
               type="text"
               inputMode="numeric"
@@ -110,7 +118,7 @@ const Profile = () => {
               onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
               required
             />
-            <button type="submit" disabled={mfaCode.length !== 6}>Verify</button>
+            <button type="submit" disabled={mfaCode.length !== 6}>Verify & Enable MFA</button>
           </form>
         </div>
       )}
