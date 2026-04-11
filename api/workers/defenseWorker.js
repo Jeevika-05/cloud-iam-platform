@@ -55,7 +55,8 @@
 import Redis   from 'ioredis';
 import winston from 'winston';
 import http    from 'http';
-import { redis as redisConfig } from '../src/shared/config/index.js';
+import crypto  from 'crypto';
+import config, { redis as redisConfig } from '../src/shared/config/index.js';
 import { recordStrike }         from '../src/shared/middleware/activeDefender.js';
 import { 
   dlqSize, retryAttemptsTotal, redisStreamLag, eventsInflightGauge,
@@ -65,8 +66,7 @@ import {
 
 // ─────────────────────────────────────────────
 // METRICS HTTP SERVER (scraped by Prometheus)
-// ─────────────────────────────────────────────
-const DEFENSE_WORKER_METRICS_PORT = parseInt(process.env.DEFENSE_WORKER_METRICS_PORT || '9092', 10);
+const DEFENSE_WORKER_METRICS_PORT = config.app.defenseWorkerMetricsPort;
 
 const metricsServer = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/metrics') {
@@ -96,7 +96,7 @@ metricsServer.on('error', (err) => {
 // Logger
 // ─────────────────────────────────────────────
 const logger = winston.createLogger({
-  level:  process.env.LOG_LEVEL || 'info',
+  level:  config.app.logLevel,
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.json()
@@ -123,7 +123,7 @@ redisClient.on('connect',      ()    => logger.info ('REDIS_CONNECTED'));
 const DEFENSE_STREAM   = 'defense_events';
 const DEFENSE_DLQ      = 'defense_events_dlq';
 const GROUP_NAME       = 'defense_workers';
-const CONSUMER_NAME    = `defense_worker_${process.pid}`;
+const CONSUMER_NAME    = `defense_worker_${crypto.randomUUID().slice(0, 8)}`;
 
 // ─────────────────────────────────────────────
 // RELIABILITY CONSTANTS

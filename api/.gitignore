@@ -9,5 +9,5 @@ coverage/
 keys/
 k8s/    
 api/secrets/
-api/.env
-api/.env.backup
+.env*
+!.env.example

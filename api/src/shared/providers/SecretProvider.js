@@ -60,22 +60,6 @@ export class EnvProvider {
    * @returns {Promise<string | undefined>}
    */
   async getSecret(key) {
-    // Priority 1: File-based secret (Kubernetes/Docker Secrets compatible)
-    const fileKey = `${key}_FILE`;
-    if (process.env[fileKey]) {
-      try {
-        return fs.readFileSync(process.env[fileKey], 'utf8').trim();
-      } catch (err) {
-        logger.error('ENV_PROVIDER_FILE_READ_FAILED', {
-          key,
-          filePath: process.env[fileKey],
-          error: err.message,
-        });
-        throw new Error(`Failed to read secret from file: ${process.env[fileKey]}`);
-      }
-    }
-
-    // Priority 2: Direct environment variable
     return process.env[key];
   }
 }
@@ -104,18 +88,17 @@ export class DockerSecretsProvider {
   }
 
   /**
-   * @param {string} key - Secret key name (mapped to lowercase filename)
+   * @param {string} key - Secret key name (exact match mounted file)
    * @returns {Promise<string | undefined>}
    */
   async getSecret(key) {
-    const secretPath = path.join(this.basePath, key.toLowerCase());
+    const secretPath = path.join(this.basePath, key);
     try {
       const value = await fs.promises.readFile(secretPath, 'utf8');
       return value.trim();
     } catch (err) {
       if (err.code === 'ENOENT') {
-        // Secret file doesn't exist — fall through gracefully
-        return undefined;
+        throw new Error(`[PROVIDER ERROR] Docker secret file not found at ${secretPath} for key ${key}`);
       }
       logger.error('DOCKER_SECRETS_READ_FAILED', {
         key,
@@ -206,30 +189,19 @@ const PROVIDERS = {
 /** @type {SecretProvider | null} */
 let _instance = null;
 
-/**
- * Returns the configured SecretProvider singleton.
- *
- * Provider selection (via SECRET_PROVIDER env var):
- *   - 'env'             → EnvProvider (default)
- *   - 'docker-secrets'  → DockerSecretsProvider
- *   - 'vault'           → VaultProvider
- *
- * @returns {SecretProvider}
- */
 export function getSecretProvider() {
   if (_instance) return _instance;
 
   const providerName = (process.env.SECRET_PROVIDER || 'env').toLowerCase();
-  const ProviderClass = PROVIDERS[providerName];
-
-  if (!ProviderClass) {
-    throw new Error(
-      `Unknown SECRET_PROVIDER: "${providerName}". ` +
-      `Valid options: ${Object.keys(PROVIDERS).join(', ')}`
-    );
+  
+  if (providerName === 'docker-secrets') {
+    _instance = new DockerSecretsProvider();
+  } else if (providerName === 'vault') {
+    _instance = new VaultProvider();
+  } else {
+    _instance = new EnvProvider();
   }
 
-  _instance = new ProviderClass();
   logger.info('SECRET_PROVIDER_INITIALIZED', { provider: _instance.getName() });
   return _instance;
 }

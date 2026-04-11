@@ -22,8 +22,31 @@ import path from 'path';
 import crypto from 'crypto';
 import { getSecretProvider } from '../providers/SecretProvider.js';
 
+if (process.env.SECRET_PROVIDER !== 'docker-secrets') {
+  const dotenv = await import('dotenv');
+  dotenv.config();
+}
+
 // 1. PROVIDER INITIALIZATION
 const secretProvider = getSecretProvider();
+
+console.log(`[CONFIG] Bootstrapping configuration...`);
+console.log(`[CONFIG] Active Secret Provider: ${secretProvider.getName()}`);
+console.log(`[CONFIG] Environment: ${process.env.SECRET_PROVIDER === 'docker-secrets' ? 'Docker' : 'Local'}`);
+
+// 2. REQUIRED SECRETS VALIDATION
+const requiredSecrets = [
+  'DATABASE_URL'
+  // Note: JWT keys and Encryption keys are validated during their specific load phases 
+  // because they support complex rotation (KIDs, versions) rather than a single explicit key.
+];
+
+for (const secret of requiredSecrets) {
+  const value = await secretProvider.getSecret(secret);
+  if (!value) {
+    throw new Error(`[STARTUP ERROR] Missing critical secret: ${secret} (Provider: ${secretProvider.getName()})`);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 // HELPER: Load secret from provider
@@ -34,13 +57,12 @@ const secretProvider = getSecretProvider();
  *
  * @param {string}  envKey       - Primary env var name (e.g., 'JWT_PRIVATE_KEY')
  * @param {object}  opts
- * @param {string}  [opts.fileEnvKey]   - Env var pointing to a file path (ignored generally by generic providers but kept for contract)
  * @param {string}  [opts.defaultValue] - Fallback for non-secret config
  * @param {boolean} [opts.required]     - Throw if value is missing
  * @param {string}  [opts.description]  - Human-readable description for error messages
  */
 async function loadSecret(envKey, opts = {}) {
-  const { fileEnvKey, defaultValue, required = false, description } = opts;
+  const { defaultValue, required = false, description } = opts;
 
   let secretValue = await secretProvider.getSecret(envKey);
 
@@ -49,17 +71,7 @@ async function loadSecret(envKey, opts = {}) {
     return secretValue;
   }
 
-  // Priority 2: File-based explicit mapping (for /app/keys compatibility)
-  if (fileEnvKey && process.env[fileEnvKey]) {
-    const filePath = process.env[fileEnvKey];
-    try {
-      return fs.readFileSync(filePath, 'utf8').trim();
-    } catch (err) {
-      throw new Error(`Failed to read secret from file ${filePath} (${fileEnvKey}): ${err.message}`);
-    }
-  }
-
-  // Priority 3: Default value (non-secrets only)
+  // Priority 2: Default value (non-secrets only)
   if (defaultValue !== undefined) {
     return defaultValue;
   }
@@ -67,7 +79,7 @@ async function loadSecret(envKey, opts = {}) {
   // Required but missing
   if (required) {
     throw new Error(
-      `Missing required configuration: ${envKey}${description ? ` (${description})` : ''}. ` +
+      `[CONFIG ERROR] Missing required configuration: ${envKey}${description ? ` (${description})` : ''}. ` +
       `Provider used: ${secretProvider.getName()}`
     );
   }
@@ -79,8 +91,8 @@ async function loadSecret(envKey, opts = {}) {
  * Loads an RSA key from the provider.
  * Handles newline normalization for keys stored in env vars.
  */
-async function loadRsaKey(envKey, fileEnvKey, description) {
-  let key = await loadSecret(envKey, { fileEnvKey, required: true, description });
+async function loadRsaKey(envKey, description) {
+  let key = await loadSecret(envKey, { required: true, description });
 
   // If the key is stored in an env var, newlines may be escaped as \n
   if (key && !key.includes('\n') && key.includes('\\n')) {
@@ -100,6 +112,9 @@ async function loadRsaKey(envKey, fileEnvKey, description) {
 export const app = Object.freeze({
   nodeEnv:    process.env.NODE_ENV || 'development',
   port:       parseInt(process.env.PORT, 10) || 3000,
+  workerMetricsPort: parseInt(process.env.WORKER_METRICS_PORT, 10) || 9091,
+  defenseWorkerMetricsPort: parseInt(process.env.DEFENSE_WORKER_METRICS_PORT, 10) || 9092,
+  logLevel:   process.env.LOG_LEVEL || 'info',
   corsOrigin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
     : ['http://localhost:3000'],
@@ -112,7 +127,6 @@ export const app = Object.freeze({
 // ─────────────────────────────────────────────────────────────
 export const database = Object.freeze({
   url: await loadSecret('DATABASE_URL', {
-    fileEnvKey: 'DATABASE_URL_FILE',
     required: true,
     description: 'PostgreSQL connection string',
   }),
@@ -123,7 +137,6 @@ export const database = Object.freeze({
 // ─────────────────────────────────────────────────────────────
 export const redis = Object.freeze({
   url: await loadSecret('REDIS_URL', {
-    fileEnvKey: 'REDIS_URL_FILE',
     defaultValue: 'redis://localhost:6379',
   }),
 });
@@ -139,32 +152,28 @@ async function loadJwtKeys() {
   const keys = {};
 
   // ── Auto-discover KID-based key pairs from env ──────────────
-  // Note: For Vault/Docker secrets without full process.env mapping,
-  // keys must currently be mounted via env to be dynamically discovered.
-  const kidPattern = /^JWT_KEY_(.+)_PRIVATE_FILE$/;
+  // Note: JWT keys need to be strictly formatted via the provider.
+  const kidPattern = /^JWT_KEY_(.+)_PRIVATE$/;
   for (const envKey of Object.keys(process.env)) {
     const match = envKey.match(kidPattern);
     if (!match) continue;
 
-    const kid = match[1].toLowerCase(); // normalize to lowercase
-    const publicEnvKey = `JWT_KEY_${match[1]}_PUBLIC_FILE`;
+    const kid = match[1].toLowerCase();
+    const publicEnvKey = `JWT_KEY_${match[1]}_PUBLIC`;
 
-    if (!process.env[publicEnvKey]) {
+    if (!(await secretProvider.getSecret(publicEnvKey))) {
       throw new Error(
-        `Found ${envKey} but missing corresponding ${publicEnvKey}. ` +
-        `Both private and public key files are required for KID "${kid}".`
+        `Found private key for KID "${kid}" but missing corresponding public key.`
       );
     }
 
     try {
       const privateKey = await loadRsaKey(
         `JWT_KEY_${match[1]}_PRIVATE`,
-        envKey,
         `RSA private key for KID "${kid}"`
       );
       const publicKey = await loadRsaKey(
         `JWT_KEY_${match[1]}_PUBLIC`,
-        publicEnvKey,
         `RSA public key for KID "${kid}"`
       );
 
@@ -179,20 +188,18 @@ async function loadJwtKeys() {
     try {
       const privateKey = await loadRsaKey(
         'JWT_PRIVATE_KEY',
-        'JWT_PRIVATE_KEY_FILE',
         'RSA private key for JWT signing (PEM format)'
       );
       const publicKey = await loadRsaKey(
         'JWT_PUBLIC_KEY',
-        'JWT_PUBLIC_KEY_FILE',
         'RSA public key for JWT verification (PEM format)'
       );
       keys['default'] = Object.freeze({ privateKey, publicKey });
       console.log(`[CONFIG] No KID-based keys found — using legacy key pair as KID "default" via ${secretProvider.getName()} provider`);
     } catch {
       throw new Error(
-        'No JWT keys configured. Set JWT_KEY_{KID}_PRIVATE_FILE / JWT_KEY_{KID}_PUBLIC_FILE, ' +
-        'or fallback JWT_PRIVATE_KEY_FILE / JWT_PUBLIC_KEY_FILE.'
+        'No JWT keys configured. Set JWT_KEY_{KID}_PRIVATE / JWT_KEY_{KID}_PUBLIC, ' +
+        'or fallback JWT_PRIVATE_KEY / JWT_PUBLIC_KEY.'
       );
     }
   }
@@ -262,10 +269,8 @@ if (!activeKeyVersion) {
  */
 async function loadEncryptionKey(version) {
   const envKey = `ENCRYPTION_KEY_V${version}`;
-  const fileKey = `ENCRYPTION_KEY_V${version}_FILE`;
 
   const key = await loadSecret(envKey, {
-    fileEnvKey: fileKey,
     required: true,
     description: `AES-256 encryption key version ${version}`,
   });
@@ -283,8 +288,8 @@ async function loadEncryptionKey(version) {
 const encryptionKeys = {};
 for (let v = 1; v <= 10; v++) {
   const envKey = `ENCRYPTION_KEY_V${v}`;
-  const fileKey = `ENCRYPTION_KEY_V${v}_FILE`;
-  if (process.env[envKey] || process.env[fileKey]) {
+  const hasKey = await secretProvider.getSecret(envKey);
+  if (hasKey) {
     encryptionKeys[v] = await loadEncryptionKey(v);
   }
 }
@@ -341,11 +346,9 @@ export const activeDefense = Object.freeze({
 // ─────────────────────────────────────────────────────────────
 export const google = Object.freeze({
   clientId: await loadSecret('GOOGLE_CLIENT_ID', {
-    fileEnvKey: 'GOOGLE_CLIENT_ID_FILE',
     defaultValue: '',
   }),
   clientSecret: await loadSecret('GOOGLE_CLIENT_SECRET', {
-    fileEnvKey: 'GOOGLE_CLIENT_SECRET_FILE',
     defaultValue: '',
   }),
   redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/v1/auth/google/callback',
@@ -356,7 +359,6 @@ export const google = Object.freeze({
 // ─────────────────────────────────────────────────────────────
 export const internal = Object.freeze({
   serviceToken: await loadSecret('INTERNAL_SERVICE_TOKEN', {
-    fileEnvKey: 'INTERNAL_SERVICE_TOKEN_FILE',
     defaultValue: '',
   }),
 });

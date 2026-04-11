@@ -49,21 +49,20 @@ services:
       - .env.config
     environment:
       SECRET_PROVIDER: docker-secrets
-      JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
-      JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
-      JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
-      JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
-      JWT_PRIVATE_KEY_FILE: /app/keys/jwt_private.pem
-      JWT_PUBLIC_KEY_FILE: /app/keys/jwt_public.pem
-      ENCRYPTION_KEY_V1_FILE: /app/keys/encryption_v1.key
-      ENCRYPTION_KEY_V2_FILE: /app/keys/encryption_v2.key
     ports:
       - '${PORT:-3000}:3000'
     volumes:
       - .:/app
       - /app/node_modules
-      - ./keys:/app/keys:ro
       - ./secrets:/run/secrets:ro
+      - ./keys/key1/private.pem:/run/secrets/JWT_KEY_KEY1_PRIVATE:ro
+      - ./keys/key1/public.pem:/run/secrets/JWT_KEY_KEY1_PUBLIC:ro
+      - ./keys/key2/private.pem:/run/secrets/JWT_KEY_KEY2_PRIVATE:ro
+      - ./keys/key2/public.pem:/run/secrets/JWT_KEY_KEY2_PUBLIC:ro
+      - ./keys/jwt_private.pem:/run/secrets/JWT_PRIVATE_KEY:ro
+      - ./keys/jwt_public.pem:/run/secrets/JWT_PUBLIC_KEY:ro
+      - ./keys/encryption_v1.key:/run/secrets/ENCRYPTION_KEY_V1:ro
+      - ./keys/encryption_v2.key:/run/secrets/ENCRYPTION_KEY_V2:ro
     command: npm run dev
     networks:
       - backend
@@ -92,19 +91,18 @@ services:
       - .env.config
     environment:
       SECRET_PROVIDER: docker-secrets
-      JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
-      JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
-      JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
-      JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
-      ENCRYPTION_KEY_V1_FILE: /app/keys/encryption_v1.key
-      ENCRYPTION_KEY_V2_FILE: /app/keys/encryption_v2.key
     ports:
       - '9091:9091'
     volumes:
       - .:/app
       - /app/node_modules
-      - ./keys:/app/keys:ro
       - ./secrets:/run/secrets:ro
+      - ./keys/key1/private.pem:/run/secrets/JWT_KEY_KEY1_PRIVATE:ro
+      - ./keys/key1/public.pem:/run/secrets/JWT_KEY_KEY1_PUBLIC:ro
+      - ./keys/key2/private.pem:/run/secrets/JWT_KEY_KEY2_PRIVATE:ro
+      - ./keys/key2/public.pem:/run/secrets/JWT_KEY_KEY2_PUBLIC:ro
+      - ./keys/encryption_v1.key:/run/secrets/ENCRYPTION_KEY_V1:ro
+      - ./keys/encryption_v2.key:/run/secrets/ENCRYPTION_KEY_V2:ro
     networks:
       - backend
 
@@ -124,19 +122,18 @@ services:
       - .env.config
     environment:
       SECRET_PROVIDER: docker-secrets
-      JWT_KEY_KEY1_PRIVATE_FILE: /app/keys/key1/private.pem
-      JWT_KEY_KEY1_PUBLIC_FILE: /app/keys/key1/public.pem
-      JWT_KEY_KEY2_PRIVATE_FILE: /app/keys/key2/private.pem
-      JWT_KEY_KEY2_PUBLIC_FILE: /app/keys/key2/public.pem
-      ENCRYPTION_KEY_V1_FILE: /app/keys/encryption_v1.key
-      ENCRYPTION_KEY_V2_FILE: /app/keys/encryption_v2.key
     ports:
       - '9092:9092'
     volumes:
       - .:/app
       - /app/node_modules
-      - ./keys:/app/keys:ro
       - ./secrets:/run/secrets:ro
+      - ./keys/key1/private.pem:/run/secrets/JWT_KEY_KEY1_PRIVATE:ro
+      - ./keys/key1/public.pem:/run/secrets/JWT_KEY_KEY1_PUBLIC:ro
+      - ./keys/key2/private.pem:/run/secrets/JWT_KEY_KEY2_PRIVATE:ro
+      - ./keys/key2/public.pem:/run/secrets/JWT_KEY_KEY2_PUBLIC:ro
+      - ./keys/encryption_v1.key:/run/secrets/ENCRYPTION_KEY_V1:ro
+      - ./keys/encryption_v2.key:/run/secrets/ENCRYPTION_KEY_V2:ro
     networks:
       - backend
 

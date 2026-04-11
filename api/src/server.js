@@ -1,5 +1,4 @@
-import 'dotenv/config';
-import config from './shared/config/index.js';  // Must import AFTER dotenv
+import config from './shared/config/index.js';
 import app from './app.js';
 import prisma from './shared/config/database.js';
 import logger from './shared/utils/logger.js';

@@ -42,13 +42,13 @@ import {
   register
 } from '../src/metrics/metrics.js';
 import { RiskEngine }        from './riskEngine.js';
-import { redis as redisConfig } from '../src/shared/config/index.js';
+import config, { redis as redisConfig } from '../src/shared/config/index.js';
 import { mergeEventToGraph, closeNeo4jDriver, initSchema } from '../src/shared/db/neo4j.js';
 
 // ─────────────────────────────────────────────
 // METRICS HTTP SERVER (scraped by Prometheus)
 // ─────────────────────────────────────────────
-const WORKER_METRICS_PORT = parseInt(process.env.WORKER_METRICS_PORT || '9091', 10);
+const WORKER_METRICS_PORT = config.app.workerMetricsPort;
 
 const metricsServer = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/metrics') {
@@ -79,7 +79,7 @@ metricsServer.on('error', (err) => {
 // Logger
 // ─────────────────────────────────────────────
 const logger = winston.createLogger({
-  level:  process.env.LOG_LEVEL || 'info',
+  level:  config.app.logLevel,
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.json()
@@ -113,7 +113,7 @@ const riskEngine = new RiskEngine(redisClient);
 const STREAM_KEY    = 'security_events';
 const DLQ_KEY       = 'security_events_dlq';
 const GROUP_NAME    = 'audit_workers';
-const CONSUMER_NAME = `worker_${process.pid}`;
+const CONSUMER_NAME = `worker_${crypto.randomUUID().slice(0, 8)}`;
 
 // ─────────────────────────────────────────────
 // RELIABILITY CONSTANTS
