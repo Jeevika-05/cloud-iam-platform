@@ -23,7 +23,7 @@ const Legend = ({ darkMode }) => (
   </div>
 );
 
-const GraphView = ({ darkMode = false }) => {
+const GraphView = ({ darkMode = false, correlationId = '' }) => {
   const fgRef = useRef();
   // Existing state
   const [type, setType] = useState('attack-defense');
@@ -46,11 +46,15 @@ const GraphView = ({ darkMode = false }) => {
     const fetchGraph = async () => {
       setLoading(true);
       try {
-        const response = await client.get(`/graph?type=${type}&limit=${limit}&severity=${severity}`);
-        if (response.data.success) {
+        let url = `/graph?type=${type}&limit=${limit}&severity=${severity}`;
+        if (correlationId) {
+            url += `&correlation_id=${correlationId}`;
+        }
+        const response = await client.get(url);
+        if (response.data) {
           setGraphData({
-            nodes: response.data.data.nodes || [],
-            edges: response.data.data.edges || []
+            nodes: response.data.nodes || [],
+            edges: response.data.edges || []
           });
           // Clear selection when data changes
           setSelectedNode(null);
@@ -65,7 +69,7 @@ const GraphView = ({ darkMode = false }) => {
     };
 
     fetchGraph();
-  }, [type, limit, severity]); // Update graph automatically on change
+  }, [type, limit, severity, correlationId]); // Update graph automatically on change
 
   const handleNodeClick = (node) => {
     if (fgRef.current) {

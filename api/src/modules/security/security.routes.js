@@ -24,12 +24,14 @@ import { Router } from 'express';
 import * as securityController from './security.controller.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
+import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 
 const router = Router();
 
 // Apply auth + RBAC to every route in this module
 router.use(authenticate);
 router.use(requirePermission('security:simulate'));
+router.use(authorizePolicy({ action: 'simulate', resource: 'security' }));
 
 // ─────────────────────────────────────────────
 // GET /attacks

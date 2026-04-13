@@ -1,18 +1,31 @@
+# ═══════════════════════════════════════════════════════════════
+# PROMETHEUS CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
+#
+# ⚠️  The bearer_token below MUST match the value in
+#     secrets/INTERNAL_SERVICE_TOKEN exactly.
+#
+#     If you rotate the service token, update this file too.
+#     This is a known limitation of Docker Compose (no secret
+#     injection into static YAML configs).
+#
+# ═══════════════════════════════════════════════════════════════
+
 global:
   scrape_interval: 5s
 
 scrape_configs:
   - job_name: 'iam-backend'
-    bearer_token: 'change-this-to-a-secure-random-hex-string-min-32-chars'
+    bearer_token: '3a6d9c20f5f24e8fedc125e4c4e4bbc011948f569ea0ca01cac23c0e8d4ed1c5'
     static_configs:
       - targets: ['backend:3000']
 
   - job_name: 'iam-event-worker'
-    bearer_token: 'change-this-to-a-secure-random-hex-string-min-32-chars'
+    bearer_token: '3a6d9c20f5f24e8fedc125e4c4e4bbc011948f569ea0ca01cac23c0e8d4ed1c5'
     static_configs:
       - targets: ['worker:9091']
 
   - job_name: 'iam-defense-worker'
-    bearer_token: 'change-this-to-a-secure-random-hex-string-min-32-chars'
+    bearer_token: '3a6d9c20f5f24e8fedc125e4c4e4bbc011948f569ea0ca01cac23c0e8d4ed1c5'
     static_configs:
       - targets: ['defense_worker:9092']

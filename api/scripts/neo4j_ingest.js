@@ -47,8 +47,17 @@ import fs   from 'fs';
 import path from 'path';
 import { PrismaClient }                        from '@prisma/client';
 import { mergeEventToGraph, closeNeo4jDriver } from '../src/shared/db/neo4j.js';
+import { initNeo4jDriver } from '../src/shared/db/neo4j.js';
+import { getSecretProvider } from '../src/shared/providers/SecretProvider.js';
 
-const prisma = new PrismaClient();
+
+const DATABASE_URL = fs.readFileSync('/run/secrets/db_url', 'utf8').trim();
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: { url: DATABASE_URL }
+  }
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -649,7 +658,8 @@ async function main() {
   const attackCount  = enriched.filter((e) => e.event_type === 'ATTACK').length;
   const defenseCount = enriched.filter((e) => e.event_type === 'DEFENSE').length;
   console.log(`\n[ENRICH] Ready: ${attackCount} ATTACK + ${defenseCount} DEFENSE`);
-
+  const secretProvider = getSecretProvider();
+  await initNeo4jDriver(secretProvider);
   // 7. Push or dry-run
   if (opts.dryRun) {
     console.log('\n[DRY-RUN] Skipping Neo4j push. First 3 enriched events:');

@@ -10,7 +10,6 @@ import Profile from '../pages/Profile';
 import Sessions from '../pages/Sessions';
 import UsersPage from '../pages/Users';
 import AuditPage from '../pages/Audit';
-import SecuritySimulation from '../pages/SecuritySimulation';
 import AuthCallback from '../pages/AuthCallback';
 
 // Guards
@@ -92,16 +91,7 @@ const AppRouter = () => {
           }
         />
 
-        <Route
-          path="/security"
-          element={
-            <ProtectedRoute>
-              <RoleGuard permission="security:simulate">
-                <SecuritySimulation />
-              </RoleGuard>
-            </ProtectedRoute>
-          }
-        />
+
 
         <Route
           path="/forbidden"

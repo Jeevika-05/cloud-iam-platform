@@ -35,13 +35,18 @@ pub struct HttpResult {
 }
 
 impl ApiClient {
-    pub fn new(base_url: &str, attacker_ip: Option<&str>, attacker_agent: Option<&str>) -> Self {
-        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    pub fn new(base_url: &str, attacker_ip: Option<&str>, attacker_agent: Option<&str>, attack_id: Option<&str>) -> Self {
+        use reqwest::header::{HeaderMap, HeaderValue};
         let mut headers = HeaderMap::new();
         if let (Some(ip), Some(agent)) = (attacker_ip, attacker_agent) {
             if let (Ok(h_ip), Ok(h_agent)) = (ip.parse::<HeaderValue>(), agent.parse::<HeaderValue>()) {
                 headers.insert("X-Simulated-IP", h_ip);
                 headers.insert("User-Agent", h_agent);
+            }
+        }
+        if let Some(id) = attack_id {
+            if let Ok(h_id) = id.parse::<HeaderValue>() {
+                headers.insert("X-Attack-ID", h_id);
             }
         }
 

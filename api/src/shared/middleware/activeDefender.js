@@ -149,7 +149,7 @@ async function emitDefenseEvent(ip, action, extraFields, triggeringEvent) {
 
   await redisClient.xadd(
     'security_events',
-    'MAXLEN', '~', '10000',
+    'MAXLEN', '~', '100000',
     '*',
     'data', JSON.stringify(event)
   );
@@ -402,7 +402,7 @@ export const activeDefenseMiddleware = async (req, res, next) => {
           reason: ban.reason,
         },
       };
-      await redisClient.xadd('security_events', 'MAXLEN', '~', '10000', '*', 'data', JSON.stringify(attackEvent));
+      await redisClient.xadd('security_events', 'MAXLEN', '~', '100000', '*', 'data', JSON.stringify(attackEvent));
       logger.info('ATTACK_EVENT_QUEUED', {
         event_id:       attackEventId,
         correlation_id: correlationId,

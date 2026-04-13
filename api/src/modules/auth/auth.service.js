@@ -25,7 +25,16 @@ const MAX_SESSIONS = config.security.maxSessions;
 // ─────────────────────────────────────────────
 // REGISTER
 // ─────────────────────────────────────────────
-export const register = async ({ name, email, password, ipAddress, userAgent }) => {
+export const register = async ({ name, email, password, ipAddress, userAgent, correlationId }) => {
+  const regKey = `velocity:reg:${ipAddress}`;
+  const regCount = await redisClient.incr(regKey);
+  if (regCount === 1) await redisClient.expire(regKey, 3600);
+
+  if (regCount > 5) {
+    await logSecurityEvent({ action: 'REGISTRATION_RATE_EXCEEDED', status: 'FAILURE', ip: ipAddress, correlationId });
+    throw new AppError('Too many registrations from this IP. Try again later.', 429, 'RATE_LIMIT_EXCEEDED');
+  }
+
   const normalizedEmail = email.toLowerCase().trim();
 
   const existing = await prisma.user.findUnique({
@@ -712,7 +721,8 @@ const issueTokens = async (user, { ipAddress, userAgent, mfaVerified = false } =
     sub: user.id,
     email: user.email,
     role: user.role,
-    jti: jti
+    jti: jti,
+    mfaVerified: mfaVerified
   };
 
   const accessToken = generateAccessToken(payload);

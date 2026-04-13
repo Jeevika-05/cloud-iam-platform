@@ -1,41 +1,49 @@
-import React, { createContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getMyPermissions } from '../api/rbac.api';
-import { AuthContext } from './AuthContext';
+import { AuthContext } from './auth-context';
+import { RbacContext } from './rbac-context';
 
-export const RbacContext = createContext(null);
+const EMPTY_PERMISSIONS = [];
 
 export const RbacProvider = ({ children }) => {
-  const [role, setRole] = useState(null);
-  const [permissions, setPermissions] = useState([]);
+  const [stateRole, setRoleState] = useState(null);
+  const [statePermissions, setPermissionsState] = useState(EMPTY_PERMISSIONS);
 
   // Reach into AuthContext directly (no hook — avoids circular dep with useAuth)
   const auth = React.useContext(AuthContext);
 
+  const role = auth?.isAuthenticated ? stateRole : null;
+  const permissions = auth?.isAuthenticated ? statePermissions : EMPTY_PERMISSIONS;
+
   // ─── Fetch permissions whenever auth state changes ────────────────────────
-  const fetchPermissions = useCallback(async () => {
-    if (!auth?.isAuthenticated) {
-      setRole(null);
-      setPermissions([]);
+  useEffect(() => {
+    if (!auth?.isAuthenticated || auth?.loading) {
       return;
     }
 
-    try {
-      const res = await getMyPermissions();
-      const { role: userRole, permissions: userPermissions } = res.data;
+    let isMounted = true;
 
-      setRole(userRole ?? null);
-      setPermissions(Array.isArray(userPermissions) ? userPermissions : []);
-    } catch {
-      // Token might not be set yet or request failed
-      setRole(null);
-      setPermissions([]);
-    }
-  }, [auth?.isAuthenticated]);
+    const fetchPerms = async () => {
+      try {
+        const res = await getMyPermissions();
+        if (!isMounted) return;
+        
+        const { role: userRole, permissions: userPermissions } = res;
+        setRoleState(userRole ?? null);
+        setPermissionsState(Array.isArray(userPermissions) ? userPermissions : EMPTY_PERMISSIONS);
+      } catch {
+        if (!isMounted) return;
+        setRoleState(null);
+        setPermissionsState(EMPTY_PERMISSIONS);
+      }
+    };
 
-  useEffect(() => {
-    if (!auth?.isAuthenticated || auth?.loading) return;
-    fetchPermissions();
-  }, [auth?.isAuthenticated, auth?.loading, fetchPermissions]);
+    fetchPerms();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [auth?.isAuthenticated, auth?.loading]);
 
   // ─── Permission check ─────────────────────────────────────────────────────
   const hasPermission = useCallback(

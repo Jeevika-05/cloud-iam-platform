@@ -43,7 +43,8 @@ import {
 } from '../src/metrics/metrics.js';
 import { RiskEngine }        from './riskEngine.js';
 import config, { redis as redisConfig } from '../src/shared/config/index.js';
-import { mergeEventToGraph, closeNeo4jDriver, initSchema } from '../src/shared/db/neo4j.js';
+import { mergeEventToGraph, closeNeo4jDriver, initSchema, initNeo4jDriver } from '../src/shared/db/neo4j.js';
+import { getSecretProvider } from '../src/shared/providers/SecretProvider.js';
 
 // ─────────────────────────────────────────────
 // METRICS HTTP SERVER (scraped by Prometheus)
@@ -89,6 +90,7 @@ const logger = winston.createLogger({
 });
 
 const prisma = new PrismaClient({
+  datasourceUrl: config.database.url,
   log: [{ emit: 'event', level: 'error' }],
 });
 prisma.$on('error', (e) => logger.error('PRISMA_ERROR', { message: e.message }));
@@ -119,8 +121,9 @@ const CONSUMER_NAME = `worker_${crypto.randomUUID().slice(0, 8)}`;
 // RELIABILITY CONSTANTS
 // ─────────────────────────────────────────────
 const MAX_RETRIES   = 3;
-const CLAIM_IDLE_MS = 30_000;
+const CLAIM_IDLE_MS = 120_000;
 const RECLAIM_COUNT = 50;
+const BATCH_CONCURRENT = parseInt(process.env.WORKER_CONCURRENCY, 10) || 5;
 
 // ─────────────────────────────────────────────
 // TASK 2: EVENT PRIORITY MAP
@@ -187,6 +190,10 @@ async function initializeRedis() {
   // TASK 3: On startup, reclaim PEL messages from crashed workers
   logger.info('STARTUP_PEL_RECLAIM');
   await reclaimAndRetry();
+
+  // Initialize Neo4j driver with password from SecretProvider
+  const secretProvider = getSecretProvider();
+  await initNeo4jDriver(secretProvider);
 
   // Initialize Neo4j schema (creates indexes and uniqueness constraints)
   await initSchema();
@@ -736,14 +743,19 @@ async function processStream() {
           logger.info('WORKER_BATCH', { count: messages.length, consumer: CONSUMER_NAME });
         }
 
-        for (const [messageId, keyValues] of messages) {
+        for (let i = 0; i < messages.length; i += BATCH_CONCURRENT) {
           if (shuttingDown) break;
-          try {
-            const ok = await processMessage(messageId, keyValues);
-            if (ok) await redisClient.xack(STREAM_KEY, GROUP_NAME, messageId);
-          } catch (err) {
-            // Leave in PEL — reclaim will retry
-            logger.error('EVENT_PROCESS_FAILED', { messageId, error: err.message });
+          const batch = messages.slice(i, i + BATCH_CONCURRENT);
+          const results = await Promise.allSettled(
+            batch.map(([msgId, keyValues]) => processMessage(msgId, keyValues))
+          );
+          
+          for (let j = 0; j < results.length; j++) {
+            if (results[j].status === 'fulfilled' && results[j].value === true) {
+              await redisClient.xack(STREAM_KEY, GROUP_NAME, batch[j][0]);
+            } else if (results[j].status === 'rejected') {
+              logger.error('EVENT_PROCESS_FAILED', { messageId: batch[j][0], error: results[j].reason.message });
+            }
           }
         }
       }

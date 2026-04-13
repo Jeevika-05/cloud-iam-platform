@@ -59,192 +59,116 @@ const buildSimEvent = ({ action, userId, severity, targetPath = '/api/v1/auth/lo
 // ATTACK REGISTRY
 // Each entry: { label, group, execute(userId) }
 // ─────────────────────────────────────────────
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const rand = (max) => Math.floor(Math.random() * max);
+
 const ATTACK_REGISTRY = {
-  // ── Authentication ────────────────────────────────────────────
   BRUTE_FORCE: {
     label: 'Brute Force Attack',
     group: 'Authentication',
-    async execute(userId) {
-      // Emit multiple rapid login failures from the same simulated IP
-      for (let i = 0; i < 6; i++) {
-        await logSecurityEvent(buildSimEvent({
-          action: 'LOGIN_FAILED',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+      
+      for (let i = 0; i < 5; i++) {
+        await logSecurityEvent({
           userId,
-          severity: 'HIGH',
-          targetPath: '/api/v1/auth/login',
-        }));
+          action: 'LOGIN_FAILED',
+          status: 'FAILURE',
+          ip: attackerIp,
+          correlationId,
+          severity: i >= 3 ? 'HIGH' : 'MEDIUM',
+          event_type: 'ATTACK',
+          metadata: {
+            event_type: 'ATTACK',
+            simulated: true,
+            target_endpoint: '/api/v1/auth/login',
+            agent_type: 'SIMULATED',
+            step: i + 1,
+            scenario: 'BRUTE_FORCE',
+          },
+        });
+        await sleep(100);
       }
+      return { correlationId, steps: 5, attackerIp };
+    },
+  },
+
+  SESSION_HIJACK_CHAIN: {
+    label: 'Session Hijack + Lateral Movement',
+    group: 'Token',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+      
+      // Step 1: Token reuse detected
+      await logSecurityEvent({
+        userId, action: 'TOKEN_REUSE_DETECTED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'CRITICAL',
+        event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 1,
+                    target_endpoint: '/api/v1/auth/refresh', agent_type: 'SIMULATED' },
+      });
+      await sleep(150);
+      
+      // Step 2-4: MFA brute force attempt from same IP
+      for (let i = 0; i < 3; i++) {
+        await logSecurityEvent({
+          userId, action: 'MFA_FAILED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: 'HIGH',
+          event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, step: 2 + i,
+                      target_endpoint: '/api/v1/mfa/validate-login', agent_type: 'SIMULATED' },
+        });
+        await sleep(100);
+      }
+      
+      // Step 5: Privilege escalation attempt
+      await logSecurityEvent({
+        userId, action: 'RBAC_ACCESS_DENIED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'HIGH',
+        event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 5,
+                    target_endpoint: '/api/v1/users', agent_type: 'SIMULATED' },
+      });
+      
+      return { correlationId, steps: 5, attackerIp };
     },
   },
 
   CREDENTIAL_STUFFING: {
     label: 'Credential Stuffing',
     group: 'Authentication',
-    async execute(userId) {
-      for (let i = 0; i < 5; i++) {
-        await logSecurityEvent(buildSimEvent({
-          action: 'LOGIN_FAILED',
-          userId,
-          severity: 'HIGH',
-          targetPath: '/api/v1/auth/login',
-        }));
+    async execute(userId, correlationId) {
+       const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+       for (let i = 0; i < 4; i++) {
+        await logSecurityEvent({
+          userId, action: 'LOGIN_FAILED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, target_endpoint: '/api/v1/auth/login', agent_type: 'SIMULATED', step: i + 1, scenario: 'CREDENTIAL_STUFFING' }
+        });
+        await sleep(100);
       }
-    },
+      return { correlationId, steps: 4, attackerIp };
+    }
   },
 
-  PASSWORD_SPRAY: {
-    label: 'Password Spray Attack',
-    group: 'Authentication',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'LOGIN_FAILED',
-        userId,
-        severity: 'MEDIUM',
-        targetPath: '/api/v1/auth/login',
-      }));
-    },
-  },
-
-  MFA_BRUTE_FORCE: {
-    label: 'MFA Brute Force',
-    group: 'Authentication',
-    async execute(userId) {
-      for (let i = 0; i < 4; i++) {
-        await logSecurityEvent(buildSimEvent({
-          action: 'MFA_FAILED',
-          userId,
-          severity: 'HIGH',
-          targetPath: '/api/v1/mfa/validate-login',
-        }));
-      }
-    },
-  },
-
-  // ── Token ─────────────────────────────────────────────────────
-  TOKEN_REPLAY: {
-    label: 'Token Replay Attack',
-    group: 'Token',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'TOKEN_REUSE_DETECTED',
-        userId,
-        severity: 'CRITICAL',
-        targetPath: '/api/v1/auth/refresh',
-      }));
-    },
-  },
-
-  JWT_TAMPERING: {
-    label: 'JWT Tampering',
-    group: 'Token',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'TOKEN_REUSE_DETECTED',
-        userId,
-        severity: 'CRITICAL',
-        targetPath: '/api/v1/auth/refresh',
-      }));
-    },
-  },
-
-  SESSION_HIJACK: {
-    label: 'Session Hijacking',
-    group: 'Token',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'SUSPICIOUS_SESSION_DETECTED',
-        userId,
-        severity: 'CRITICAL',
-        targetPath: '/api/v1/auth/refresh',
-      }));
-    },
-  },
-
-  // ── API ───────────────────────────────────────────────────────
   API_ABUSE: {
     label: 'API Abuse',
     group: 'API',
-    async execute(userId) {
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
       for (let i = 0; i < 8; i++) {
-        await logSecurityEvent(buildSimEvent({
-          action: 'LOGIN_FAILED',
-          userId,
-          severity: 'MEDIUM',
-          targetPath: '/api/v1/users',
-        }));
+        await logSecurityEvent({
+          userId, action: 'ABAC_ACCESS_DENIED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: 'MEDIUM', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, target_endpoint: '/api/v1/users', agent_type: 'SIMULATED', step: i + 1, scenario: 'API_ABUSE' }
+        });
+        await sleep(100);
       }
-    },
-  },
-
-  RATE_LIMIT_BYPASS: {
-    label: 'Rate Limit Bypass Attempt',
-    group: 'API',
-    async execute(userId) {
-      for (let i = 0; i < 5; i++) {
-        await logSecurityEvent(buildSimEvent({
-          action: 'LOGIN_FAILED',
-          userId,
-          severity: 'MEDIUM',
-          targetPath: '/api/v1/auth/login',
-        }));
-      }
-    },
-  },
-
-  // ── Authorization ─────────────────────────────────────────────
-  PRIVILEGE_ESCALATION: {
-    label: 'Privilege Escalation',
-    group: 'Authorization',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'RBAC_ACCESS_DENIED',
-        userId,
-        severity: 'HIGH',
-        targetPath: '/api/v1/users',
-      }));
-    },
-  },
-
-  IDOR: {
-    label: 'Insecure Direct Object Reference',
-    group: 'Authorization',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'ABAC_ACCESS_DENIED',
-        userId,
-        severity: 'HIGH',
-        targetPath: `/api/v1/users/${crypto.randomUUID()}`,
-      }));
-    },
-  },
-
-  // ── Other ─────────────────────────────────────────────────────
-  SQL_INJECTION: {
-    label: 'SQL Injection Attempt',
-    group: 'Other',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'LOGIN_FAILED',
-        userId,
-        severity: 'CRITICAL',
-        targetPath: '/api/v1/auth/login',
-      }));
-    },
-  },
-
-  OAUTH_ABUSE: {
-    label: 'OAuth Token Abuse',
-    group: 'Other',
-    async execute(userId) {
-      await logSecurityEvent(buildSimEvent({
-        action: 'TOKEN_REUSE_DETECTED',
-        userId,
-        severity: 'HIGH',
-        targetPath: '/api/v1/auth/google/callback',
-      }));
-    },
-  },
+      return { correlationId, steps: 8, attackerIp };
+    }
+  }
 };
+
 
 // ─────────────────────────────────────────────
 // EXPORTED: List available attack types
@@ -277,7 +201,7 @@ export const runSimulation = async ({ type, userId, correlationId }) => {
   });
 
   try {
-    await attack.execute(userId);
+    const attackResult = await attack.execute(userId, correlationId);
 
     // Audit the simulation trigger itself
     await logSecurityEvent({
@@ -294,6 +218,8 @@ export const runSimulation = async ({ type, userId, correlationId }) => {
         attackType: normalizedType,
         attackLabel: attack.label,
         attackGroup: attack.group,
+        steps: attackResult?.steps,
+        attackIp: attackResult?.attackerIp
       },
     });
 
@@ -306,6 +232,9 @@ export const runSimulation = async ({ type, userId, correlationId }) => {
       attack: normalizedType,
       label: attack.label,
       group: attack.group,
+      correlationId: correlationId,
+      steps: attackResult?.steps,
+      attackerIp: attackResult?.attackerIp
     };
   } catch (err) {
     attackSimulationCounter.inc({ type: normalizedType, status: 'failure' });

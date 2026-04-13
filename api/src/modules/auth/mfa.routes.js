@@ -3,6 +3,7 @@ import * as mfaController from './mfa.controller.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import { apiLimiter, mfaLimiter } from '../../shared/middleware/rateLimiter.js';
+import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 
 const router = Router();
 
@@ -16,6 +17,12 @@ router.post('/verify', mfaLimiter, requirePermission('mfa:verify'), mfaControlle
 
 // Disable TOTP MFA — requires re-authentication (TOTP code or password in body)
 // mfaLimiter guards against brute-forcing the re-auth credentials
-router.delete('/', mfaLimiter, requirePermission('mfa:setup'), mfaController.disableMfa);
+router.delete(
+  '/', 
+  mfaLimiter, 
+  requirePermission('mfa:setup'), 
+  authorizePolicy({ action: 'modify_security', resource: 'sensitive' }),
+  mfaController.disableMfa
+);
 
 export default router;

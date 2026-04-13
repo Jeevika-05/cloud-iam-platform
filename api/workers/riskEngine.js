@@ -83,6 +83,7 @@ const BASE_EVENT_WEIGHTS = {
   CSRF:                         15,
   RATE_FLOOD:                   10,  // W-6: was missing (defaulted to 2)
   BLOCKED_REQUEST:               5,  // W-6: was missing (defaulted to 2)
+  REGISTRATION_RATE_EXCEEDED:   15,
 
   // ── Reuse / compromise ───────────────────────────────────
   TOKEN_REUSE_DETECTED:         20,
@@ -105,7 +106,7 @@ const RISK_SEQ_TTL    = 3_600;   // 1h
 
 // Defense stream
 const DEFENSE_STREAM = 'defense_events';
-const DEFENSE_STREAM_MAXLEN = 50_000;
+const DEFENSE_STREAM_MAXLEN = 100_000;
 
 // ─────────────────────────────────────────────
 // PURE SCORING HELPERS
@@ -222,14 +223,21 @@ export class RiskEngine {
     const correlationId = triggeringEvent.correlation_id ?? 'no-corr';
     const dedupKey = `${ip}:${correlationId}:${slot}:${severity}`;
     const payload  = {
-      event_id:       crypto.randomUUID(),
-      correlation_id: triggeringEvent.correlation_id ?? null,
-      source_ip:      ip,
+      event_id:        crypto.randomUUID(),
+      correlation_id:  triggeringEvent.correlation_id ?? null,
+      parent_event_id: triggeringEvent.event_id       ?? null, // attack event that triggered this
+      source_ip:       ip,
       severity,
-      reason:         `risk_score_${score}_delta_${Math.floor(delta)}_pattern_${patternScore}`,
+      reason:          `risk_score_${score}_delta_${Math.floor(delta)}_pattern_${patternScore}`,
       score,
-      dedup_key:      dedupKey,
-      timestamp:      new Date().toISOString(),
+      dedup_key:       dedupKey,
+      timestamp:       new Date().toISOString(),
+      // Carry identity context for Neo4j User/Session node creation
+      user_id:         triggeringEvent.user_id     ?? null,
+      user_email:      triggeringEvent.user_email  ?? null,
+      session_id:      triggeringEvent.session_id  ?? null,
+      action:          severity === 'CRITICAL' ? 'ESCALATE' : 'STRIKE',
+      target_endpoint: triggeringEvent.target_endpoint ?? null,
     };
 
     try {
@@ -312,6 +320,26 @@ export class RiskEngine {
         eventType = 'MFA_FAILED';
       }
 
+      // ── SLOW BRUTE FORCE DETECTION (24h lookback) ───────────────────────
+      if (eventType === 'LOGIN_FAILED') {
+        const historyKey = `risk:history:IP:${ip}`;
+        const member = `evt:${eventTimeMs}:${crypto.randomUUID().split('-')[0]}`;
+        await this.redis.zadd(historyKey, eventTimeMs, member);
+        // Evict older than 24h
+        await this.redis.zremrangebyscore(historyKey, '-inf', eventTimeMs - 86400000);
+        // Force expiry on key
+        await this.redis.expire(historyKey, 86400);
+        
+        const recentFailures = await this.redis.zcard(historyKey);
+        
+        // If 10 failures across a 24h boundary (slow brute), upgrade event
+        if (recentFailures > 10) {
+          logger.warn('SLOW_BRUTE_FORCE_DETECTED', { ip, failures_24h: recentFailures });
+          eventType = 'PASSWORD_BRUTE';
+          event.action = 'PASSWORD_BRUTE';
+        }
+      }
+
       // ── Multi-entity scoring ──────────────────────────────────────────────
       const entities = [`IP:${ip}`];
       if (event.user_id)    entities.push(`USER:${event.user_id}`);
@@ -353,11 +381,31 @@ export class RiskEngine {
         const increment         = currentTotalCont - prevTotalCont;
         const adjustedIncrement = increment + (event.event_type === 'ATTACK' ? 10 : 0);
 
-        const patternScore  = detectPatternScore(seq);
+        let patternScore  = detectPatternScore(seq);
+
+        // ── Anomaly & FP Modifiers ────────────────────────────────────────
+        let anomalyModifier = 0;
+        
+        // 1. Time-of-day constraint (3AM - 5AM UTC = suspicious)
+        const hour = new Date(eventTimeMs).getUTCHours();
+        if (hour >= 2 && hour <= 5) anomalyModifier += 5;
+
+        // 2. Headless/Scripted User-Agent detection
+        const ua = (event.user_agent || '').toLowerCase();
+        if (!ua || ua.includes('curl') || ua.includes('python') || ua.includes('postman')) {
+          anomalyModifier += 10;
+        }
+
+        // 3. FP Mitigation (Fat Finger)
+        // If they fail password then MFA immediately (under 2 mins), it's likely benign fat finger vs an attack sequence
+        if (patternScore === 15 && timeDiffMinutes < 2 && seq.length <= 2) {
+            patternScore = 5; // Downgrade penalty heavily
+        }
+
         const severity      = (event.severity || 'LOW').toUpperCase();
         const severityScore = SEVERITY_WEIGHTS[severity] ?? 2;
 
-        let entityTotal = currentScore + adjustedIncrement + patternScore + severityScore;
+        let entityTotal = currentScore + adjustedIncrement + patternScore + severityScore + anomalyModifier;
         entityTotal = Math.floor(Math.max(0, Math.min(100, entityTotal)));
 
         const delta = entityTotal - previousScore;

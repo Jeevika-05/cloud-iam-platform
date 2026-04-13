@@ -64,16 +64,71 @@ const logger = winston.createLogger({
 // ── Connection ────────────────────────────────────────────────────────────────
 const neo4jUrl      = process.env.NEO4J_URL      || 'bolt://neo4j:7687';
 const neo4jUser     = process.env.NEO4J_USER     || 'neo4j';
-const neo4jPassword = process.env.NEO4J_PASSWORD || 'password';
 
+// Password is loaded at init time from the SecretProvider.
+// In Docker: /run/secrets/neo4j_password
+// In local dev: NEO4J_PASSWORD env var
+let _neo4jPassword = null;
 let driver = null;
+
+/**
+ * Initializes the Neo4j password from the secret provider.
+ * Must be called once at application startup before getNeo4jDriver().
+ * Workers and the API server should call this during bootstrap.
+ *
+ * In Docker mode (SECRET_PROVIDER=docker-secrets), a missing password
+ * is a FATAL error — the service must not start with wrong credentials.
+ *
+ * @param {object} secretProvider - The active SecretProvider instance
+ */
+export async function initNeo4jDriver(secretProvider) {
+  if (secretProvider) {
+    _neo4jPassword = await secretProvider.getSecret('NEO4J_PASSWORD');
+  }
+
+  if (_neo4jPassword) {
+    logger.info('NEO4J_PASSWORD_RESOLVED', {
+      provider: secretProvider?.getName?.() ?? 'unknown',
+      message: 'Neo4j password loaded from SecretProvider.',
+    });
+    return;
+  }
+
+  // Fallback path: env var or default
+  const isDocker = process.env.SECRET_PROVIDER === 'docker-secrets';
+
+  if (isDocker) {
+    // In Docker, a missing Neo4j password means the secret mount is broken.
+    // Fail loudly instead of silently using wrong credentials.
+    logger.error('NEO4J_PASSWORD_MISSING_DOCKER', {
+      message: 'NEO4J_PASSWORD secret not found at /run/secrets/neo4j_password. ' +
+               'Add neo4j_password to the service secrets: list in docker-compose.yml.',
+    });
+    throw new Error(
+      '[FATAL] NEO4J_PASSWORD not available from DockerSecretsProvider. ' +
+      'Ensure neo4j_password is listed in docker-compose.yml secrets: for this service.'
+    );
+  }
+
+  // Local dev fallback — allow process.env or default
+  _neo4jPassword = process.env.NEO4J_PASSWORD || 'password';
+  logger.warn('NEO4J_PASSWORD_FALLBACK', {
+    message: 'Using fallback Neo4j password (local dev). Set NEO4J_PASSWORD for production.',
+  });
+}
 
 export function getNeo4jDriver() {
   if (!driver) {
+    if (!_neo4jPassword) {
+      throw new Error(
+        'Neo4j driver requested before initNeo4jDriver() was called. ' +
+        'Call initNeo4jDriver(secretProvider) during bootstrap.'
+      );
+    }
     try {
       driver = neo4j.driver(
         neo4jUrl,
-        neo4j.auth.basic(neo4jUser, neo4jPassword),
+        neo4j.auth.basic(neo4jUser, _neo4jPassword),
         {
           maxConnectionPoolSize:        50,
           connectionAcquisitionTimeout: 3000,
@@ -570,31 +625,62 @@ RETURN
   ev.color      AS color
   `;
 
-  const session = getNeo4jDriver().session({ defaultAccessMode: neo4j.session.WRITE });
+  // ── Retry config ─────────────────────────────────────────────────────────
+  // Neo4j TransientErrors (deadlocks, ExclusiveLock contention) are expected
+  // when multiple workers MERGE on the same shared nodes (IP, AttackType,
+  // Endpoint). Retry up to 3x with exponential backoff.
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 200;
 
-  try {
-    const result  = await session.run(query, p);
-    const record  = result.records[0];
-    const ingested = record?.get('ingested');
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const session = getNeo4jDriver().session({ defaultAccessMode: neo4j.session.WRITE });
+    try {
+      const result  = await session.run(query, p);
+      const record  = result.records[0];
+      const ingested = record?.get('ingested');
 
-    logger.info('NEO4J_MERGE_OK', {
-      event_id: ingested,
-      type:     record?.get('type'),
-      display:  record?.get('display'),
-    });
+      logger.info('NEO4J_MERGE_OK', {
+        event_id: ingested,
+        type:     record?.get('type'),
+        display:  record?.get('display'),
+        ...(attempt > 1 ? { retry_attempt: attempt } : {}),
+      });
 
-    return ingested;
-  } catch (err) {
-    logger.error('NEO4J_MERGE_FAILED', {
-      event_id:   eventData?.event_id,
-      action:     eventData?.action,
-      event_type: eventData?.event_type,
-      error:      err.message,
-    });
-    // Neo4j is a secondary read-optimized sink; PostgreSQL is source of truth.
-    // Re-throw so the caller can dead-letter or retry.
-    throw err;
-  } finally {
-    await session.close();
+      return ingested;
+    } catch (err) {
+      const isTransient =
+        err.code === 'Neo.TransientError.Transaction.DeadlockDetected' ||
+        err.code === 'Neo.TransientError.Transaction.LockClientStopped' ||
+        err.message?.includes('ExclusiveLock') ||
+        err.message?.includes('DeadlockDetected') ||
+        err.message?.includes('lock') ||
+        (err.code && err.code.startsWith('Neo.TransientError'));
+
+      if (isTransient && attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(3, attempt - 1); // 200, 600, 1800ms
+        logger.warn('NEO4J_MERGE_RETRY', {
+          event_id:   eventData?.event_id,
+          attempt,
+          delay_ms:   delay,
+          error:      err.message,
+        });
+        await new Promise(r => setTimeout(r, delay));
+        continue; // retry
+      }
+
+      // Non-transient error or exhausted retries
+      logger.error('NEO4J_MERGE_FAILED', {
+        event_id:   eventData?.event_id,
+        action:     eventData?.action,
+        event_type: eventData?.event_type,
+        error:      err.message,
+        attempts:   attempt,
+      });
+      // Neo4j is a secondary read-optimized sink; PostgreSQL is source of truth.
+      // Re-throw so the caller can dead-letter or retry.
+      throw err;
+    } finally {
+      await session.close();
+    }
   }
 }

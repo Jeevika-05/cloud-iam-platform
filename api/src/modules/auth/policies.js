@@ -36,17 +36,24 @@ export const policies = [
     condition: ({ user, resource }) => user.id === resource.id,
   },
 
-  // 🛡️ SECURITY_ANALYST: read all users
+  // 🛡️ SECURITY_ANALYST: read all users, view audit/metrics, simulate attacks
   {
     roles: ['SECURITY_ANALYST'],
+    actions: ['read', 'simulate'],
+    resources: ['user', 'audit', 'metrics', 'security', 'graph', 'rbac'],
+  },
+
+  // 👤 USER: read own audit events
+  {
+    roles: ['USER'],
     actions: ['read'],
-    resources: ['user'],
+    resources: ['audit'],
   },
 
   // 🔐 USER: manage own sessions
   {
     roles: ['USER'],
-    actions: ['delete'],
+    actions: ['read', 'delete'],
     resources: ['session'],
     condition: ({ user, resource }) => user.id === resource.userId,
   }

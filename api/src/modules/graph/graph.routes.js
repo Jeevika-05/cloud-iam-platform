@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
+import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import { successResponse, errorResponse } from '../../shared/utils/response.js';
 import { getNeo4jDriver } from '../../shared/db/neo4j.js';
 import neo4j from 'neo4j-driver';
@@ -11,6 +12,7 @@ router.get(
   ['/', '/attack-paths'],
   authenticate,
   requirePermission('security:view'),
+  authorizePolicy({ action: 'read', resource: 'graph' }),
   async (req, res) => {
     let session;
     try {

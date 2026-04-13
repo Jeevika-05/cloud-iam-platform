@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { RbacContext } from '../context/RbacContext';
+import { RbacContext } from '../context/rbac-context';
 
 /**
  * usePermission — returns the hasPermission(permission) function.

@@ -1,7 +1,15 @@
 import config from './shared/config/index.js';
 import app from './app.js';
-import prisma from './shared/config/database.js';
+import prisma, { initPrisma } from './shared/config/database.js';
 import logger from './shared/utils/logger.js';
+import { initNeo4jDriver } from './shared/db/neo4j.js';
+import { getSecretProvider } from './shared/providers/SecretProvider.js';
+
+// ─── Initialize Prisma with secret-loaded DATABASE_URL ──────────────────────
+// config/index.js resolves DATABASE_URL from Docker secrets at the top level.
+// Prisma's schema.prisma env("DATABASE_URL") would fail in Docker where secrets
+// are file-mounted, not env vars — so we inject via datasourceUrl override.
+initPrisma(config.database.url);
 
 const PORT = config.app.port;
 
@@ -42,6 +50,11 @@ const startServer = async () => {
   try {
     await prisma.$connect();
     logger.info('✅ Database connected');
+
+    // Initialize Neo4j driver with password from SecretProvider
+    const secretProvider = getSecretProvider();
+    await initNeo4jDriver(secretProvider);
+    logger.info('✅ Neo4j driver initialized');
 
     const server = app.listen(PORT, '0.0.0.0', () => {
       logger.info(`🚀 Server running on port ${PORT} [${config.app.nodeEnv}]`);

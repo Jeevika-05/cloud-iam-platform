@@ -10,7 +10,7 @@ const Sessions = () => {
   const fetchSessions = async () => {
     try {
       const res = await getSessions();
-      setSessions(Array.isArray(res.data) ? res.data : []);
+      setSessions(Array.isArray(res) ? res : []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load sessions.');
     } finally {

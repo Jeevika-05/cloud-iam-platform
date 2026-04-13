@@ -1,4 +1,61 @@
+# ═══════════════════════════════════════════════════════════════
+# CLOUD IAM SECURITY PLATFORM — Docker Compose (v2)
+# ═══════════════════════════════════════════════════════════════
+#
+# Secrets strategy:
+#   - All sensitive values stored as files under ./secrets/
+#   - Mounted via Docker Compose `secrets:` → /run/secrets/<name>
+#   - Read by DockerSecretsProvider at runtime
+#   - Non-secret config passed via `environment:` block
+#
+# Networks:
+#   - data     : backend ↔ postgres, redis, neo4j
+#   - workers  : workers ↔ redis, postgres, neo4j
+#   - monitor  : prometheus, grafana ↔ backend, workers
+#   - frontend : nginx ↔ backend only
+#
+# NEVER expose backend port directly — all traffic via Nginx.
+# ═══════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────
+# SECRETS DECLARATION (file-based, Docker Compose v2)
+# ─────────────────────────────────────────────────────────────
+secrets:
+  db_url:
+    file: ./secrets/DATABASE_URL
+  redis_url:
+    file: ./secrets/REDIS_URL
+  google_client_id:
+    file: ./secrets/GOOGLE_CLIENT_ID
+  google_client_secret:
+    file: ./secrets/GOOGLE_CLIENT_SECRET
+  internal_service_token:
+    file: ./secrets/INTERNAL_SERVICE_TOKEN
+  neo4j_password:
+    file: ./secrets/NEO4J_PASSWORD
+  encryption_v1:
+    file: ./keys/encryption_v1.key
+  encryption_v2:
+    file: ./keys/encryption_v2.key
+  jwt_key1_private:
+    file: ./keys/key1/private.pem
+  jwt_key1_public:
+    file: ./keys/key1/public.pem
+  jwt_key2_private:
+    file: ./keys/key2/private.pem
+  jwt_key2_public:
+    file: ./keys/key2/public.pem
+  jwt_private_legacy:
+    file: ./keys/jwt_private_final.pem
+  jwt_public_legacy:
+    file: ./keys/jwt_public_final.pem
+
+# ─────────────────────────────────────────────────────────────
+# SERVICES
+# ─────────────────────────────────────────────────────────────
 services:
+
+  # ─── DATA STORES ──────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: auth_redis
@@ -7,7 +64,8 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - backend
+      - data
+      - workers
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -18,8 +76,6 @@ services:
     image: postgres:16-alpine
     container_name: authdb
     restart: unless-stopped
-    env_file:
-      - .env.config
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -27,13 +83,45 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - backend
+      - data
+      - workers
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
       interval: 10s
       timeout: 5s
       retries: 5
 
+  neo4j:
+    image: neo4j:5
+    container_name: auth_neo4j
+    restart: unless-stopped
+    secrets:
+      - neo4j_password
+    # Read password from /run/secrets at container start.
+    # Neo4j doesn't support file-based secrets natively, so we use
+    # a shell wrapper to export NEO4J_AUTH before the real entrypoint.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        export NEO4J_AUTH="neo4j/$$(cat /run/secrets/neo4j_password)"
+        exec /startup/docker-entrypoint.sh neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - data
+      - workers
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── BACKEND API ──────────────────────────────────────────
+  # NOTE: No ports exposed. Frontend Nginx proxies /api/ → backend:3000.
   backend:
     build:
       context: .
@@ -45,33 +133,55 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file:
-      - .env.config
+    secrets:
+      - db_url
+      - redis_url
+      - google_client_id
+      - google_client_secret
+      - internal_service_token
+      - neo4j_password
+      - encryption_v1
+      - encryption_v2
+      - jwt_key1_private
+      - jwt_key1_public
+      - jwt_key2_private
+      - jwt_key2_public
+      - jwt_private_legacy
+      - jwt_public_legacy
     environment:
+      # ── Non-secret config (safe to inline) ──
       SECRET_PROVIDER: docker-secrets
-    ports:
-      - '${PORT:-3000}:3000'
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - ./keys/key1/private.pem:/app/secrets/key1_private.pem:ro
-      - ./keys/key1/public.pem:/app/secrets/key1_public.pem:ro
-      - ./keys/key2/private.pem:/app/secrets/key2_private.pem:ro
-      - ./keys/key2/public.pem:/app/secrets/key2_public.pem:ro
-      - ./keys/jwt_private_final.pem:/app/secrets/jwt_private.pem:ro
-      - ./keys/jwt_public_final.pem:/app/secrets/jwt_public.pem:ro
-      - ./keys/encryption_v1.key:/app/secrets/encryption_v1.key:ro
-      - ./keys/encryption_v2.key:/app/secrets/encryption_v2.key:ro
-    command: npm run dev
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      ACTIVE_KEY_VERSION: 2
+      JWT_ACTIVE_KID: key1
+      JWT_KIDS: key1,key2
+      ACTIVE_DEFENDER: "true"
+      SIMULATION_MODE: "false"
+      RISK_THRESHOLD_LOW: 30
+      RISK_THRESHOLD_MEDIUM: 60
+      RISK_THRESHOLD_HIGH: 85
+      WORKER_METRICS_PORT: 9091
+      DEFENSE_WORKER_METRICS_PORT: 9092
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      NEO4J_URL: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+    # NO ports: — only reachable via Nginx on the frontend network
     networks:
-      - backend
+      - data
+      - frontend
+      - monitor
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/health || exit 1']
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    volumes:
+      - ./reports:/app/reports
 
+  # ─── EVENT WORKER ─────────────────────────────────────────
   worker:
     build:
       context: .
@@ -86,26 +196,40 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
-    env_file:
-      - .env.config
+    secrets:
+      - db_url
+      - redis_url
+      - encryption_v1
+      - encryption_v2
+      - jwt_key1_private
+      - jwt_key1_public
+      - jwt_key2_private
+      - jwt_key2_public
+      - jwt_private_legacy
+      - jwt_public_legacy
+      - internal_service_token
+      - neo4j_password
     environment:
+      WORKER_CONCURRENCY: 1
       SECRET_PROVIDER: docker-secrets
-    ports:
-      - '9091:9091'
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - ./keys/key1/private.pem:/app/secrets/key1_private.pem:ro
-      - ./keys/key1/public.pem:/app/secrets/key1_public.pem:ro
-      - ./keys/key2/private.pem:/app/secrets/key2_private.pem:ro
-      - ./keys/key2/public.pem:/app/secrets/key2_public.pem:ro
-      - ./keys/jwt_private_final.pem:/app/secrets/jwt_private.pem:ro
-      - ./keys/jwt_public_final.pem:/app/secrets/jwt_public.pem:ro
-      - ./keys/encryption_v1.key:/app/secrets/encryption_v1.key:ro
-      - ./keys/encryption_v2.key:/app/secrets/encryption_v2.key:ro
+      NODE_ENV: ${NODE_ENV:-development}
+      ACTIVE_KEY_VERSION: 2
+      JWT_ACTIVE_KID: key1
+      JWT_KIDS: key1,key2
+      ACTIVE_DEFENDER: "true"
+      SIMULATION_MODE: "false"
+      RISK_THRESHOLD_LOW: 30
+      RISK_THRESHOLD_MEDIUM: 60
+      RISK_THRESHOLD_HIGH: 85
+      WORKER_METRICS_PORT: 9091
+      NEO4J_URL: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+    # NO ports exposed — Prometheus scrapes via internal network
     networks:
-      - backend
+      - workers
+      - monitor
 
+  # ─── DEFENSE WORKER ──────────────────────────────────────
   defense_worker:
     build:
       context: .
@@ -118,26 +242,40 @@ services:
         condition: service_healthy
       worker:
         condition: service_started
-    env_file:
-      - .env.config
+    secrets:
+      - db_url
+      - redis_url
+      - encryption_v1
+      - encryption_v2
+      - jwt_key1_private
+      - jwt_key1_public
+      - jwt_key2_private
+      - jwt_key2_public
+      - jwt_private_legacy
+      - jwt_public_legacy
+      - internal_service_token
+      - neo4j_password
     environment:
+      DEFENSE_WORKER_CONCURRENCY: 1
       SECRET_PROVIDER: docker-secrets
-    ports:
-      - '9092:9092'
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - ./keys/key1/private.pem:/app/secrets/key1_private.pem:ro
-      - ./keys/key1/public.pem:/app/secrets/key1_public.pem:ro
-      - ./keys/key2/private.pem:/app/secrets/key2_private.pem:ro
-      - ./keys/key2/public.pem:/app/secrets/key2_public.pem:ro
-      - ./keys/jwt_private_final.pem:/app/secrets/jwt_private.pem:ro
-      - ./keys/jwt_public_final.pem:/app/secrets/jwt_public.pem:ro
-      - ./keys/encryption_v1.key:/app/secrets/encryption_v1.key:ro
-      - ./keys/encryption_v2.key:/app/secrets/encryption_v2.key:ro
+      NODE_ENV: ${NODE_ENV:-development}
+      ACTIVE_KEY_VERSION: 2
+      JWT_ACTIVE_KID: key1
+      JWT_KIDS: key1,key2
+      ACTIVE_DEFENDER: "true"
+      SIMULATION_MODE: "false"
+      RISK_THRESHOLD_LOW: 30
+      RISK_THRESHOLD_MEDIUM: 60
+      RISK_THRESHOLD_HIGH: 85
+      DEFENSE_WORKER_METRICS_PORT: 9092
+      NEO4J_URL: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+    # NO ports exposed — Prometheus scrapes via internal network
     networks:
-      - backend
+      - workers
+      - monitor
 
+  # ─── DATABASE MIGRATION (one-shot) ───────────────────────
   migrate:
     build:
       context: .
@@ -147,21 +285,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    env_file:
-      - .env.config
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-authdb}
     command: ['npx', 'prisma', 'migrate', 'deploy']
     restart: 'no'
     networks:
-      - backend
+      - data
 
+  # ─── ATTACK SIMULATION (profile-gated) ───────────────────
   attacker:
     profiles: ["attack"]
     build:
       context: ../simulation-engine/cloudshield-attacker
       dockerfile: Dockerfile
-    
     depends_on:
       backend:
         condition: service_healthy
@@ -173,10 +309,9 @@ services:
     volumes:
       - ./reports:/reports
     networks:
-      - backend
+      - data
     restart: "no"
 
-  #  Attack ingestion (results.json → Redis)
   attack-ingest:
     profiles: ["attack"]
     build:
@@ -191,24 +326,21 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
     volumes:
-      - .:/app
-      - /app/node_modules
-      - ./reports:/app/reports
+      - ./reports:/app/reports:ro
     networks:
-      - backend
+      - data
     restart: "no"
 
-
-
+  # ─── MONITORING ──────────────────────────────────────────
   prometheus:
     image: prom/prometheus
     container_name: prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
     networks:
-      - backend
+      - monitor
     depends_on:
       - backend
       - worker
@@ -226,29 +358,11 @@ services:
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
-      - backend
+      - monitor
     depends_on:
       - prometheus
 
-  neo4j:
-    image: neo4j:5
-    container_name: auth_neo4j
-    restart: unless-stopped
-    ports:
-      - "7474:7474"
-      - "7687:7687"
-    environment:
-      NEO4J_AUTH: neo4j/password
-    volumes:
-      - neo4j_data:/data
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+  # ─── FRONTEND (Nginx reverse proxy) ──────────────────────
   frontend:
     build:
       context: ../frontend
@@ -258,13 +372,22 @@ services:
     depends_on:
       - backend
     networks:
-      - backend
+      - frontend
 
+# ─────────────────────────────────────────────────────────────
+# VOLUMES
+# ─────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
   grafana_data:
   neo4j_data:
   redis_data:
 
+# ─────────────────────────────────────────────────────────────
+# NETWORKS (segmented)
+# ─────────────────────────────────────────────────────────────
 networks:
-  backend:
+  data:         # backend ↔ postgres, redis, neo4j
+  workers:      # workers ↔ postgres, redis, neo4j
+  monitor:      # prometheus, grafana ↔ backend, workers
+  frontend:     # nginx ↔ backend only

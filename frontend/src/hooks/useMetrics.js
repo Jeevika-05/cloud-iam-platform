@@ -16,7 +16,7 @@ export default function useMetrics() {
     setError(null);
     try {
       const res = await client.get('/metrics/summary');
-      const data = res.data?.data ?? res.data;
+      const data = res;
       setMetrics({
         totalRequests:  data.totalRequests  ?? 0,
         failedLogins:   data.failedLogins   ?? 0,

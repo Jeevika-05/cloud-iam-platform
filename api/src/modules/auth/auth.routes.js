@@ -2,6 +2,8 @@ import { Router } from 'express';
 import * as authController from './auth.controller.js';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
+import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
+import * as authService from './auth.service.js';
 import { authLimiter, mfaLimiter, apiLimiter } from '../../shared/middleware/rateLimiter.js';
 import { validate, registerRules, loginRules, sessionIdParamRule } from '../../shared/middleware/validate.js';
 
@@ -42,6 +44,7 @@ router.get(
   authenticate,
   apiLimiter,
   requirePermission('profile:read'),
+  authorizePolicy({ action: 'read', resource: 'user', getResource: req => ({ id: req.user.id }) }),
   authController.getProfile
 );
 
@@ -51,6 +54,7 @@ router.patch(
   authenticate,
   apiLimiter,
   requirePermission('profile:update'),
+  authorizePolicy({ action: 'update', resource: 'user', getResource: req => ({ id: req.user.id }) }),
   authController.updateProfile
 );
 
@@ -64,6 +68,7 @@ router.get(
   '/sessions',
   authenticate,
   requirePermission('sessions:list_own'),
+  authorizePolicy({ action: 'read', resource: 'session', getResource: req => ({ userId: req.user.id }) }),
   authController.getSessions
 );
 
@@ -72,6 +77,7 @@ router.get(
   '/sessions/current',
   authenticate,
   requirePermission('sessions:list_own'),
+  authorizePolicy({ action: 'read', resource: 'session', getResource: req => ({ userId: req.user.id }) }),
   authController.getCurrentSession
 );
 
@@ -80,6 +86,17 @@ router.delete(
   '/sessions/:id',
   authenticate,
   requirePermission('sessions:revoke_own'),
+  authorizePolicy({ 
+    action: 'delete', 
+    resource: 'session', 
+    getResource: async (req) => {
+      try {
+        return await authService.getCurrentSession(req.params.id);
+      } catch {
+        return null;
+      }
+    }
+  }),
   sessionIdParamRule,
   validate,
   authController.revokeSession
@@ -90,6 +107,7 @@ router.delete(
   '/sessions',
   authenticate,
   requirePermission('sessions:revoke_own'),
+  authorizePolicy({ action: 'delete', resource: 'session', getResource: req => ({ userId: req.user.id }) }),
   authController.revokeAllSessions
 );
 

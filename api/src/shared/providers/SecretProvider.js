@@ -7,9 +7,14 @@
  * implement getSecret(key) → Promise<string>.
  *
  * Current providers:
- *   - EnvProvider      (active)   — reads from env vars / mounted files
- *   - DockerProvider   (placeholder) — reads from /run/secrets/*
- *   - VaultProvider    (placeholder) — reads from HashiCorp Vault API
+ *   - EnvProvider          (active)   — reads from env vars (local dev)
+ *   - DockerSecretsProvider (active)  — reads from /run/secrets/*
+ *   - VaultProvider        (placeholder) — reads from HashiCorp Vault API
+ *
+ * Docker Compose `secrets:` mounts files at /run/secrets/<secret_name>.
+ * The <secret_name> is the key used in the docker-compose.yml secrets block.
+ * DockerSecretsProvider maps logical config keys (e.g., 'DATABASE_URL')
+ * to the actual filenames under /run/secrets/.
  *
  * Usage:
  *   import { getSecretProvider } from './providers/SecretProvider.js';
@@ -41,9 +46,8 @@ import logger from '../utils/logger.js';
  */
 
 // ─────────────────────────────────────────────────────────────
-// PROVIDER 1: EnvProvider (Active)
-// Reads secrets from environment variables or mounted files.
-// Priority: file path env var → direct env var → undefined
+// PROVIDER 1: EnvProvider
+// Reads secrets from environment variables (local dev only).
 // ─────────────────────────────────────────────────────────────
 
 export class EnvProvider {
@@ -65,12 +69,22 @@ export class EnvProvider {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PROVIDER 2: DockerSecretsProvider (Placeholder)
-// Reads secrets from Docker Secrets mounted at /run/secrets/
+// PROVIDER 2: DockerSecretsProvider
+// Reads secrets from Docker Compose `secrets:` mount at /run/secrets/
+//
+// Docker Compose mounts each secret as a file at:
+//   /run/secrets/<secret_name>
+//
+// The KEY_MAP below maps logical config keys used by the application
+// (e.g., 'DATABASE_URL') to the Docker secret name (e.g., 'db_url')
+// which corresponds to the filename under /run/secrets/.
+//
+// If a key is NOT in KEY_MAP, we fall back to reading
+// /run/secrets/<key> directly (case-sensitive filename match).
 // ─────────────────────────────────────────────────────────────
 
 export class DockerSecretsProvider {
-  constructor(basePath = '/app/secrets') {
+  constructor(basePath = '/run/secrets') {
     this.basePath = basePath;
   }
 
@@ -88,31 +102,67 @@ export class DockerSecretsProvider {
   }
 
   /**
-   * @param {string} key - Secret key name (exact match mounted file)
+   * Maps application-level config key → Docker Compose secret name.
+   *
+   * Left side  = the key used in config/index.js (e.g., loadSecret('DATABASE_URL'))
+   * Right side = the secret name from docker-compose.yml secrets: block
+   *              which becomes the filename under /run/secrets/
+   *
+   * To add a new secret:
+   *   1. Add it to docker-compose.yml `secrets:` block
+   *   2. Add it to the service's `secrets:` list
+   *   3. Add the mapping here
+   */
+  static KEY_MAP = Object.freeze({
+    // ── Connection strings ──────────────────────────────────
+    'DATABASE_URL':           'db_url',
+    'REDIS_URL':              'redis_url',
+
+    // ── OAuth ───────────────────────────────────────────────
+    'GOOGLE_CLIENT_ID':       'google_client_id',
+    'GOOGLE_CLIENT_SECRET':   'google_client_secret',
+
+    // ── Internal service auth ───────────────────────────────
+    'INTERNAL_SERVICE_TOKEN': 'internal_service_token',
+
+    // ── Neo4j ───────────────────────────────────────────────
+    'NEO4J_PASSWORD':         'neo4j_password',
+
+    // ── Encryption keys ─────────────────────────────────────
+    'ENCRYPTION_KEY_V1':      'encryption_v1',
+    'ENCRYPTION_KEY_V2':      'encryption_v2',
+
+    // ── JWT KID-based key pairs ─────────────────────────────
+    'JWT_KEY_KEY1_PRIVATE':   'jwt_key1_private',
+    'JWT_KEY_KEY1_PUBLIC':    'jwt_key1_public',
+    'JWT_KEY_KEY2_PRIVATE':   'jwt_key2_private',
+    'JWT_KEY_KEY2_PUBLIC':    'jwt_key2_public',
+
+    // ── JWT legacy fallback key pair ────────────────────────
+    'JWT_PRIVATE_KEY':        'jwt_private_legacy',
+    'JWT_PUBLIC_KEY':         'jwt_public_legacy',
+  });
+
+  /**
+   * @param {string} key - Logical config key (e.g., 'DATABASE_URL')
    * @returns {Promise<string | undefined>}
    */
   async getSecret(key) {
-    const keyMap = {
-      'JWT_KEY_KEY1_PRIVATE': '/app/secrets/key1_private.pem',
-      'JWT_KEY_KEY1_PUBLIC': '/app/secrets/key1_public.pem',
-      'JWT_KEY_KEY2_PRIVATE': '/app/secrets/key2_private.pem',
-      'JWT_KEY_KEY2_PUBLIC': '/app/secrets/key2_public.pem',
-      'JWT_PRIVATE_KEY': '/app/secrets/jwt_private.pem',
-      'JWT_PUBLIC_KEY': '/app/secrets/jwt_public.pem',
-      'ENCRYPTION_KEY_V1': '/app/secrets/encryption_v1.key',
-      'ENCRYPTION_KEY_V2': '/app/secrets/encryption_v2.key',
-    };
-    
-    const secretPath = keyMap[key] || path.join(this.basePath, key);
+    // Resolve: KEY_MAP lookup → fallback to raw key as filename
+    const secretFileName = DockerSecretsProvider.KEY_MAP[key] || key;
+    const secretPath = path.join(this.basePath, secretFileName);
+
     try {
       const value = await fs.promises.readFile(secretPath, 'utf8');
       return value.trim();
     } catch (err) {
       if (err.code === 'ENOENT') {
+        // Not found at /run/secrets — this is normal for optional secrets
         return undefined;
       }
       logger.error('DOCKER_SECRETS_READ_FAILED', {
         key,
+        resolvedFile: secretFileName,
         path: secretPath,
         error: err.message,
       });

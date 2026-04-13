@@ -14,7 +14,7 @@ const Profile = () => {
   const fetchProfile = async () => {
     try {
       const res = await getProfile();
-      setProfile(res.data);
+      setProfile(res);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load profile.');
     } finally {
@@ -31,7 +31,7 @@ const Profile = () => {
     setMfaMessage('');
     try {
       const res = await setupMfa();
-      setMfaSetup(res.data);
+      setMfaSetup(res);
     } catch (err) {
       setMfaMessage(err.response?.data?.message || 'Failed to start MFA setup.');
     }

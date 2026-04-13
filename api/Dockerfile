@@ -24,13 +24,8 @@ WORKDIR /app
 # Create non-root user
 RUN addgroup -S nodejs && adduser -S nodeuser
 
-# Pre-create secrets mount point to ensure Docker doesn't trip on ro rootfs issues
-RUN mkdir -p /app/secrets && \
-    touch /app/secrets/key1_private.pem /app/secrets/key1_public.pem \
-          /app/secrets/key2_private.pem /app/secrets/key2_public.pem \
-          /app/secrets/jwt_private.pem /app/secrets/jwt_public.pem \
-          /app/secrets/encryption_v1.key /app/secrets/encryption_v2.key && \
-    chown -R nodeuser:nodejs /app/secrets
+# Secrets are mounted at /run/secrets/ by Docker Compose.
+# No need to pre-create /app/secrets — that path is deprecated.
 
 # Copy files
 COPY --from=builder /app/node_modules ./node_modules

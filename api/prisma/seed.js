@@ -5,7 +5,9 @@ import speakeasy from 'speakeasy';
 import { encrypt } from '../src/shared/utils/cipher.js';
 import config from '../src/shared/config/index.js';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasourceUrl: config.database.url,
+});
 
 // Argon2id parameters from centralized config
 const ARGON2_OPTIONS = {

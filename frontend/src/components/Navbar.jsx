@@ -42,9 +42,6 @@ const Navbar = () => {
           {hasPermission('audit:view') && (
             <Link to="/audit" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '14px', fontWeight: 500 }}>Audit</Link>
           )}
-          {hasPermission('security:simulate') && (
-            <Link to="/security" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '14px', fontWeight: 500 }}>Graph</Link>
-          )}
         </div>
       </div>
 

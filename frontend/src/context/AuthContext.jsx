@@ -1,9 +1,8 @@
-import React, { createContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as authApi from '../api/auth.api';
 import * as userApi from '../api/user.api';
 import { setAccessToken } from '../api/client';
-
-export const AuthContext = createContext(null);
+import { AuthContext } from './auth-context';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -15,12 +14,12 @@ export const AuthProvider = ({ children }) => {
   const refreshToken = useCallback(async () => {
     try {
       const res = await authApi.refresh();
-      const { accessToken } = res.data;
+      const { accessToken } = res;
 
       setAccessToken(accessToken);
 
       const profile = await userApi.getProfile();
-      setUser(profile.data.user || profile.data);
+      setUser(profile.user || profile);
       setIsAuthenticated(true);
     } catch {
       // Refresh cookie absent or expired — stay unauthenticated silently
@@ -32,18 +31,43 @@ export const AuthProvider = ({ children }) => {
 
   // ─── On App Load ────────────────────────────────────────────────────────────
   useEffect(() => {
+    let isMounted = true;
+
     const bootstrap = async () => {
-      await refreshToken();
-      setLoading(false);
+      try {
+        const res = await authApi.refresh();
+        if (!isMounted) return;
+
+        const { accessToken } = res;
+        setAccessToken(accessToken);
+
+        const profile = await userApi.getProfile();
+        if (!isMounted) return;
+
+        setUser(profile.user || profile);
+        setIsAuthenticated(true);
+      } catch {
+        if (!isMounted) return;
+        // Refresh cookie absent or expired — stay unauthenticated silently
+        setAccessToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     };
+
     bootstrap();
-  }, [refreshToken]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // ─── Login ──────────────────────────────────────────────────────────────────
   // Returns a status object — the calling component handles navigation.
   const login = useCallback(async (email, password) => {
-    const res = await authApi.login({ email, password });
-    const data = res.data;
+    const data = await authApi.login({ email, password });
 
     if (data?.status === 'MFA_REQUIRED') {
       setTempToken(data.tempToken);

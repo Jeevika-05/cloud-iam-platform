@@ -67,7 +67,9 @@ async function loadSecret(envKey, opts = {}) {
   let secretValue = await secretProvider.getSecret(envKey);
 
   if (secretValue !== undefined && secretValue !== null && secretValue !== '') {
-    if (!process.env[envKey]) process.env[envKey] = secretValue;
+    // NOTE: We intentionally do NOT write secrets back into process.env.
+    // Secrets from /run/secrets should stay in-memory only to prevent
+    // leakage via child processes, error serialization, or debug output.
     return secretValue;
   }
 

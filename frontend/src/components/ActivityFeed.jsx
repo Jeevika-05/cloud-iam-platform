@@ -5,6 +5,7 @@ const ActivityFeed = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [viewFilter, setViewFilter] = useState('all');
 
   const isMounted = useRef(true);
 
@@ -14,8 +15,8 @@ const ActivityFeed = () => {
     const fetchData = async () => {
       try {
         const response = await api.get('/audit/events?limit=10');
-        if (isMounted.current && response.data?.data?.events) {
-          setEvents(response.data.data.events);
+        if (isMounted.current && response.data?.events) {
+          setEvents(response.data.events);
         }
         if (isMounted.current) setError(null);
       } catch (err) {
@@ -56,7 +57,32 @@ const ActivityFeed = () => {
         <div style={{ color: '#ef4444', padding: '10px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px' }}>{error}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {events.map((e) => {
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            {['all', 'attacks', 'defense'].map(f => (
+              <button 
+                key={f}
+                onClick={() => setViewFilter(f)}
+                style={{
+                  padding: '4px 12px',
+                  fontSize: '12px',
+                  borderRadius: '16px',
+                  background: viewFilter === f ? '#3b82f6' : 'var(--bg-app)',
+                  color: viewFilter === f ? '#fff' : 'var(--text)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer'
+                }}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+          {events.filter(e => {
+            if (viewFilter === 'all') return true;
+            const isDef = e.action === 'STRIKE' || e.action.includes('BAN') || e.metadata?.event_type === 'DEFENSE';
+            if (viewFilter === 'defense') return isDef;
+            if (viewFilter === 'attacks') return !isDef && (e.metadata?.event_type === 'ATTACK' || e.action.includes('FAIL') || e.action.includes('DENIED') || e.action.includes('DETECTED') || ['HIGH', 'CRITICAL'].includes(e.severity));
+            return true;
+          }).map((e) => {
             const severity = e.severity || e.metadata?.severity || 'LOW';
             return (
             <div key={e.event_id || e.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '14px', background: 'var(--bg-app)' }}>

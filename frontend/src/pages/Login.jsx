@@ -5,6 +5,7 @@ import useAuth from '../hooks/useAuth';
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [errorMsg, setErrorMsg] = useState(null);
   const { login } = useAuth();
 
   const location = useLocation();
@@ -14,6 +15,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg(null);
     try {
       const result = await login(email, password);
       if (result.mfaRequired) {
@@ -27,13 +29,14 @@ const Login = () => {
       }
     } catch (error) {
       console.error('Login error', error);
-      // Handle error state here eventually
+      setErrorMsg(error.message || 'An error occurred during login');
     }
   };
 
   return (
     <div className="login-container">
       <h2>Login</h2>
+      {errorMsg && <div className="error-banner" style={{ color: 'red', marginBottom: '16px' }}>{errorMsg}</div>}
       <form onSubmit={handleSubmit}>
         <div>
           <label>Email: </label>

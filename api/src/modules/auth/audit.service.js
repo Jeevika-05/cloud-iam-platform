@@ -92,6 +92,8 @@ const ACTION_TO_ATTACK_CATEGORY = {
   TOKEN_REUSE_DETECTED:      'SESSION_ATTACK',
   SUSPICIOUS_SESSION_DETECTED: 'SESSION_ATTACK',
   SESSION_HIJACK_DETECTED:   'SESSION_ATTACK',
+  SESSION_INVALID:           'SESSION_ATTACK',
+  REGISTRATION_RATE_EXCEEDED: 'API_ABUSE',
   RBAC_ACCESS_DENIED:        'AUTHORIZATION_ATTACK',
   ABAC_ACCESS_DENIED:        'AUTHORIZATION_ATTACK',
 };
@@ -150,7 +152,7 @@ const emitAttackEvent = async ({ correlationId, action, result, sourceIp, ipType
 
   await redisClient.xadd(
     'security_events',
-    'MAXLEN', '~', '10000',
+    'MAXLEN', '~', '100000',
     '*',
     'data',
     JSON.stringify(attackEvent)
@@ -291,7 +293,7 @@ export const logSecurityEvent = async (payload) => {
 
     await redisClient.xadd(
       'security_events',
-      'MAXLEN', '~', '10000',
+      'MAXLEN', '~', '100000',
       '*',
       'data',
       JSON.stringify(graphEvent)

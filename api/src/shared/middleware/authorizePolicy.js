@@ -32,6 +32,8 @@ export const authorizePolicy = ({ action, resource, getResource }) => {
         
         // Active Session Context Enforcement (ABAC Hard Deny)
         if (currentSession) {
+          context.session = currentSession;
+          
           if (
             (currentSession.ipAddress && currentSession.ipAddress !== context.ip) ||
             (currentSession.userAgent && currentSession.userAgent !== context.userAgent)

@@ -17,7 +17,9 @@
     "db:seed": "node prisma/seed.js",
     "lint": "echo \"Add ESLint later\"",
     "test": "echo \"Add tests later\"",
-    "ingest:attack": "node scripts/ingestAttackEvents.js"
+    "ingest:attack": "node scripts/ingestAttackEvents.js",
+    "generate:keys": "node scripts/generate-keys.js",
+    "validate:secrets": "node scripts/validate-secrets.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

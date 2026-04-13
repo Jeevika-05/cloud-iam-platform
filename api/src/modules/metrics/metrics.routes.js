@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
+import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import { successResponse, errorResponse } from '../../shared/utils/response.js';
 import { register } from '../../metrics/metrics.js';
 
@@ -10,6 +11,7 @@ router.get(
   '/summary',
   authenticate,
   requirePermission('metrics:view'),
+  authorizePolicy({ action: 'read', resource: 'metrics' }),
   async (req, res) => {
     try {
       // Get JSON structured metrics

@@ -114,6 +114,22 @@ export const authorizeRoles = (...allowedRolesInput) => {
       // Allow access if ANY role matches allowedRoles
       const hasAccess = allowedRoles.some(allowedRole => expandedUserRoles.has(allowedRole));
 
+      // 4b. Enforce strictly that privileged roles or privileged endpoints necessitate MFA
+      const PRIVILEGED_ROLES = ['ADMIN', 'SECURITY_ANALYST'];
+      const requiresPrivilegedRole = allowedRoles.some(r => PRIVILEGED_ROLES.includes(r));
+      const hasPrivilegedRole = Array.from(expandedUserRoles).some(r => PRIVILEGED_ROLES.includes(r));
+
+      if (hasPrivilegedRole || requiresPrivilegedRole) {
+        if (!req.auth?.mfaVerified) {
+          logger.warn('MFA_REQUIRED_FOR_PRIVILEGED_ACCESS', {
+            userId: req.user.id,
+            role: req.user.role,
+            path: req.originalUrl,
+          });
+          throw new AppError('MFA is strictly required for privileged access', 403, 'MFA_REQUIRED');
+        }
+      }
+
       if (!hasAccess) {
         const clientInfo = extractClientInfo(req);
 

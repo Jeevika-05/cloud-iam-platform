@@ -15,6 +15,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
+import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import { ROLE_PERMISSIONS, roleHasPermission } from '../../shared/rbac/rolePermissions.js';
 import { PERMISSIONS } from '../../shared/rbac/permissions.js';
 import { ROLES } from '../../shared/middleware/authorizeRoles.js';
@@ -70,6 +71,7 @@ router.get('/check', (req, res) => {
 router.get(
   '/roles',
   requirePermission('users:list'),
+  authorizePolicy({ action: 'read', resource: 'rbac' }),
   (req, res) => {
     const roles = {};
     for (const [roleName, permSet] of Object.entries(ROLE_PERMISSIONS)) {

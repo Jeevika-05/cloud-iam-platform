@@ -18,7 +18,7 @@ const MfaPage = () => {
 
     try {
       const res = await validateMfaLogin({ tempToken, code });
-      const { accessToken, user } = res.data;
+      const { accessToken, user } = res;
 
       // Set token + user + isAuthenticated in one shot — mirrors login() success
       completeMfaLogin(accessToken, user);

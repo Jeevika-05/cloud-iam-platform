@@ -58,6 +58,8 @@ import http    from 'http';
 import crypto  from 'crypto';
 import config, { redis as redisConfig } from '../src/shared/config/index.js';
 import { recordStrike }         from '../src/shared/middleware/activeDefender.js';
+import { mergeEventToGraph, closeNeo4jDriver, initNeo4jDriver } from '../src/shared/db/neo4j.js';
+import { getSecretProvider } from '../src/shared/providers/SecretProvider.js';
 import { 
   dlqSize, retryAttemptsTotal, redisStreamLag, eventsInflightGauge,
   workerAliveGauge, redisConnectionStatus, processingBacklogSize,
@@ -147,6 +149,7 @@ async function shutdown(signal) {
   // Close metrics server first so Prometheus stops scraping
   await new Promise((resolve) => metricsServer.close(resolve));
   await new Promise(r => setTimeout(r, 1500));
+  await closeNeo4jDriver();
   await redisClient.quit();
   logger.info('DEFENSE_WORKER_STOPPED', { signal });
   process.exit(0);
@@ -183,6 +186,11 @@ async function initialize() {
       throw err;
     }
   }
+
+  // Initialize Neo4j driver with password from SecretProvider
+  const secretProvider = getSecretProvider();
+  await initNeo4jDriver(secretProvider);
+  logger.info('DEFENSE_NEO4J_INITIALIZED');
 
   // TASK 3: Startup PEL reclaim — recover messages from crashed consumers
   logger.info('DEFENSE_STARTUP_RECLAIM', { idle_ms: CLAIM_IDLE_MS });
@@ -303,6 +311,61 @@ async function processDefenseMessage(messageId, keyValues) {
       correlation_id: correlation_id ?? null,
       event_id:       event_id       ?? null,
     });
+
+    // ── Write DEFENSE node + TRIGGERED_DEFENSE edge to Neo4j ──────────────
+    // This is the critical missing piece: without this, the graph has ATTACK
+    // nodes but no DEFENSE nodes and no causal TRIGGERED_DEFENSE relationships.
+    try {
+      const defenseEvent = {
+        event_id:              event_id,
+        correlation_id:        correlation_id ?? null,
+        parent_event_id:       task.parent_event_id ?? null,   // attack event that triggered this
+        event_group_id:        correlation_id ?? null,
+        event_type:            'DEFENSE',
+        event_priority:        2,                              // DEFENSE always after ATTACK
+        event_sequence_index:  null,                           // enriched by graph ordering
+        action:                task.action || (severity === 'CRITICAL' ? 'ESCALATE' : 'STRIKE'),
+        source_ip:             source_ip,
+        ip_type:               null,
+        user_agent:            null,
+        agent_type:            'SYSTEM',
+        target_endpoint:       task.target_endpoint ?? 'unknown',
+        target_type:           'API',
+        mode:                  'ACTIVE_DEFENSE',
+        result:                'TRIGGERED',
+        severity:              severity,
+        risk_score:            score ?? null,
+        risk_level:            severity === 'CRITICAL' ? 'HIGH' : 'MEDIUM',
+        timestamp:             task.timestamp ?? new Date().toISOString(),
+        event_signature:       `DEFENSE-${task.action || 'STRIKE'}-${source_ip}-${Math.floor(Date.now() / 60000)}`,
+        events_per_minute_bucket: 1,
+        correlation_confidence:   correlation_id ? 1.0 : 0.5,
+        is_attack_related:     true,
+        is_defense_triggered:  true,
+        reason:                reason ?? null,
+        strike_count:          null,
+        ban_duration:          severity === 'CRITICAL' ? 900 : null,
+        blocked:               severity === 'CRITICAL',
+        mitigation_result:     task.action || (severity === 'CRITICAL' ? 'ESCALATE' : 'STRIKE'),
+        user_id:               task.user_id     ?? null,
+        user_email:            task.user_email  ?? null,
+        session_id:            task.session_id  ?? null,
+      };
+
+      await mergeEventToGraph(defenseEvent);
+      logger.info('DEFENSE_NEO4J_WRITTEN', {
+        event_id,
+        parent_event_id: task.parent_event_id ?? null,
+        correlation_id:  correlation_id ?? null,
+      });
+    } catch (neo4jErr) {
+      // Neo4j is a secondary sink — don't fail the defense action for a graph write error
+      logger.error('DEFENSE_NEO4J_WRITE_FAILED', {
+        event_id,
+        error: neo4jErr.message,
+        correlation_id: correlation_id ?? null,
+      });
+    }
 
     workerLastProcessedTimestamp.set({ worker: 'defenseWorker' }, Date.now());
     eventsInflightGauge.dec({ worker: 'defenseWorker' });

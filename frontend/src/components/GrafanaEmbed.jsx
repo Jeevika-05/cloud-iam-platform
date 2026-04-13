@@ -22,7 +22,7 @@ const GrafanaEmbed = ({ dashboard, title, height = '400px', className = '' }) =>
       const res = await client.get('/dashboard/embed-url', {
         params: { dashboard },
       });
-      const embedUrl = res.data?.data?.url ?? res.data?.url;
+      const embedUrl = res.data?.url;
       if (embedUrl) {
         setUrl(embedUrl);
       } else {

@@ -43,6 +43,8 @@ export const simulate = async (req, res, next) => {
         label: result.label,
         group: result.group,
         timestamp: new Date().toISOString(),
+        correlationId: result.correlationId,
+        graphQuery: `/api/v1/graph/attack-paths?correlation_id=${result.correlationId}`,
       },
       'Simulation triggered'
     );

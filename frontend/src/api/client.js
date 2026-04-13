@@ -2,11 +2,21 @@ import axios from 'axios';
 
 let accessToken = null;
 
+let isRefreshing = false;
+let failedQueue = [];
+
 export const setAccessToken = (token) => {
   accessToken = token;
 };
 
 export const getAccessToken = () => accessToken;
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(({ resolve, reject }) => {
+    error ? reject(error) : resolve(token);
+  });
+  failedQueue = [];
+};
 
 const client = axios.create({
   baseURL: '/api/v1',
@@ -27,9 +37,14 @@ client.interceptors.request.use(
   }
 );
 
-// Response Interceptor: Handle 401 TOKEN_EXPIRED
+// Response Interceptor: Fast unwrapping & handle 401 TOKEN_EXPIRED
 client.interceptors.response.use(
   (response) => {
+    // Auto-unwrap the { success, data, message } envelope
+    if (response.data && response.data.success !== undefined) {
+      // NOTE: We replace response.data with response.data.data
+      response.data = response.data.data;
+    }
     return response;
   },
   async (error) => {
@@ -44,18 +59,35 @@ client.interceptors.response.use(
         status: 403
       });
     } else if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest._retry) {
-      // Check if the error is due to an expired token
+      
+      if (isRefreshing) {
+        // Queue the request
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers['Authorization'] = `Bearer ${token}`;
+          return client(originalRequest);
+        });
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
 
       try {
         const res = await client.post('/auth/refresh');
-        setAccessToken(res.data.data.accessToken);
+        // Unwrapped in success handler, so res.data is the actual API payload
+        const newToken = res.data.accessToken; 
+        
+        setAccessToken(newToken);
+        processQueue(null, newToken);
 
         originalRequest.headers = originalRequest.headers || {};
-        originalRequest.headers['Authorization'] = `Bearer ${res.data.data.accessToken}`;
+        originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
 
         return client(originalRequest);
       } catch (refreshError) {
+        processQueue(refreshError);
+        
         // If refresh fails, normalize the refresh error
         const refreshData = refreshError.response?.data || {};
         return Promise.reject({
@@ -63,6 +95,8 @@ client.interceptors.response.use(
           code: refreshData.code || 'SESSION_EXPIRED',
           status: refreshError.response?.status || 401
         });
+      } finally {
+        isRefreshing = false;
       }
     }
 

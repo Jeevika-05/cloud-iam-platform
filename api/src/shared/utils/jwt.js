@@ -81,6 +81,7 @@ export const generateAccessToken = (payload) => {
       sub:   payload.sub,
       email: payload.email,
       role:  payload.role,
+      mfaVerified: payload.mfaVerified,
       type:  'access',
       jti:   payload.jti,
     },

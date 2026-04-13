@@ -7,6 +7,7 @@ import GraphView from '../components/GraphView';
 import GrafanaEmbed from '../components/GrafanaEmbed';
 import ActivityFeed from '../components/ActivityFeed';
 import SystemStatus from '../components/SystemStatus';
+import SimulationPanel from '../components/SimulationPanel';
 import './Dashboard.css';
 
 /* ─── Constants ──────────────────────────────────────── */
@@ -80,6 +81,9 @@ const Dashboard = () => {
   // ── Metrics (via reusable hook)
   const { metrics, loading: metricsLoading, error: metricsError } = useMetrics();
 
+  // ── Filter State for Graph
+  const [correlationId, setCorrelationId] = useState('');
+
   /* ── Logout handler ──────────────────────────────── */
   const handleLogout = async () => {
     await logout();
@@ -113,13 +117,17 @@ const Dashboard = () => {
       {roleExact === 'ADMIN' && (
         <AdminDashboard 
           metrics={metrics} loading={metricsLoading} error={metricsError} 
-          darkMode={darkMode} 
+          darkMode={darkMode}
+          correlationId={correlationId}
+          setCorrelationId={setCorrelationId}
         />
       )}
       {roleExact === 'ANALYST' && (
         <AnalystDashboard 
           metrics={metrics} loading={metricsLoading} error={metricsError} 
-          darkMode={darkMode} 
+          darkMode={darkMode}
+          correlationId={correlationId}
+          setCorrelationId={setCorrelationId}
         />
       )}
       {roleExact === 'USER' && (
@@ -162,12 +170,20 @@ const MetricsSection = ({ metrics, loading, error }) => (
   </section>
 );
 
-const GraphSection = ({ darkMode }) => (
+const GraphSection = ({ darkMode, correlationId, setCorrelationId }) => (
   <section className="graph-section">
     <h2 className="section-title">
       <span className="icon">🕸️</span> Threat Graph
+      {correlationId && (
+        <button 
+          onClick={() => setCorrelationId('')} 
+          style={{ marginLeft: '12px', fontSize: '12px', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-app)', cursor: 'pointer' }}
+        >
+          Clear Filter
+        </button>
+      )}
     </h2>
-    <GraphView darkMode={darkMode} />
+    <GraphView darkMode={darkMode} correlationId={correlationId} />
   </section>
 );
 
@@ -191,25 +207,27 @@ const ActivitySection = () => (
 );
 
 /* ─── Role Dashboard Components ──────────────────────── */
-const AdminDashboard = ({ metrics, loading, error, darkMode }) => (
-  <>
+const AdminDashboard = ({ metrics, loading, error, darkMode, correlationId, setCorrelationId }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
     <MetricsSection metrics={metrics} loading={loading} error={error} />
     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', alignItems: 'start' }}>
-      <GraphSection darkMode={darkMode} />
+      <GraphSection darkMode={darkMode} correlationId={correlationId} setCorrelationId={setCorrelationId} />
       <ActivitySection />
     </div>
+    <SimulationPanel onSimulationComplete={(res) => setCorrelationId(res.correlationId)} />
     <GrafanaSection />
-  </>
+  </div>
 );
 
-const AnalystDashboard = ({ metrics, loading, error, darkMode }) => (
-  <>
+const AnalystDashboard = ({ metrics, loading, error, darkMode, correlationId, setCorrelationId }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', alignItems: 'start' }}>
-      <GraphSection darkMode={darkMode} />
+      <GraphSection darkMode={darkMode} correlationId={correlationId} setCorrelationId={setCorrelationId} />
       <ActivitySection />
     </div>
     <MetricsSection metrics={metrics} loading={loading} error={error} />
-  </>
+    <SimulationPanel onSimulationComplete={(res) => setCorrelationId(res.correlationId)} />
+  </div>
 );
 
 const UserDashboard = () => (
