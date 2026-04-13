@@ -103,7 +103,7 @@ async fn main() {
     println!("[CONFIG] Isolation: per-attack identities");
     println!();
 
-    let client = ApiClient::new(&target_url, Some("127.0.0.1"), Some("Sim-Healthcheck"));
+    let client = ApiClient::new(&target_url, Some("127.0.0.1"), Some("Sim-Healthcheck"), None);
 
     wait_for_api(&client).await;
 
@@ -120,7 +120,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::TokenRace) {
         let (email, password) = generate_attack_identity("token-race", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.101"), Some("attack-sim-token-race"));
+        let atk01_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.101"), Some("attack-sim-token-race"), Some(&atk01_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK01-TokenRace").await;
 
         println!();
@@ -130,7 +131,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk01_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::token_race::run(&client, &email, &password, &user_id, &atk01_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -160,7 +161,8 @@ async fn main() {
     if mode.should_run(&AttackMode::MfaReplay) {
         let email = env::var("MFA_TARGET_EMAIL").unwrap_or_else(|_| "admin_attack@example.com".into());
         let password = env::var("MFA_TARGET_PASSWORD").unwrap_or_else(|_| "Admin@1234!".into());
-        let client = ApiClient::new(&target_url, Some("192.168.1.102"), Some("attack-sim-mfa"));
+        let atk02_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.102"), Some("attack-sim-mfa"), Some(&atk02_correlation_id));
         let user_id = match client.login(&email, &password).await {
             Ok(res) => res.user_id,
             Err(_) => email.clone(), // fallback since MFA_REQUIRED will be returned
@@ -173,7 +175,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk02_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::mfa_replay::run(&client, &email, &password, &user_id, &atk02_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -203,7 +205,8 @@ async fn main() {
     if mode.should_run(&AttackMode::Idor) {
         // IDOR creates its own attacker+victim internally
         let (email, password) = generate_attack_identity("idor", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.103"), Some("attack-sim-idor"));
+        let atk03_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.103"), Some("attack-sim-idor"), Some(&atk03_correlation_id));
         let user_id = email.clone(); // IDOR registers its own users; fall back to email as ID
 
         println!();
@@ -213,7 +216,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk03_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::idor::run(&client, &email, &password, &user_id, &atk03_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -242,7 +245,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::JwtTamper) {
         let (email, password) = generate_attack_identity("jwt", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.104"), Some("attack-sim-jwt"));
+        let atk04_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.104"), Some("attack-sim-jwt"), Some(&atk04_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK04-JWT").await;
 
         println!();
@@ -252,7 +256,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk04_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::jwt_tamper::run(&client, &email, &password, &user_id, &atk04_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -281,7 +285,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::SessionReuse) {
         let (email, password) = generate_attack_identity("sess-reuse", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.105"), Some("attack-sim-sess-reuse"));
+        let atk05_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.105"), Some("attack-sim-sess-reuse"), Some(&atk05_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK05-SessReuse").await;
 
         println!();
@@ -291,7 +296,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk05_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::session_reuse::run(&client, &email, &password, &user_id, &atk05_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -321,7 +326,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::PasswordBrute) {
         let (email, password) = generate_attack_identity("brute", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.106"), Some("attack-sim-brute"));
+        let atk06_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.106"), Some("attack-sim-brute"), Some(&atk06_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK06-Brute").await;
 
         println!();
@@ -331,7 +337,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk06_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::password_brute::run(&client, &email, &password, &user_id, &atk06_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -360,7 +366,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::SessionInvalidation) {
         let (email, password) = generate_attack_identity("logout", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.107"), Some("attack-sim-logout"));
+        let atk07_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.107"), Some("attack-sim-logout"), Some(&atk07_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK07-Logout").await;
 
         println!();
@@ -370,7 +377,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk07_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::session_invalidation::run(&client, &email, &password, &user_id, &atk07_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -399,7 +406,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::RateFlood) {
         let (email, password) = generate_attack_identity("flood", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.108"), Some("attack-sim-flood"));
+        let atk08_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.108"), Some("attack-sim-flood"), Some(&atk08_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK08-Flood").await;
 
         println!();
@@ -409,7 +417,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk08_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::rate_flood::run(&client, &email, &password, &user_id, &atk08_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -438,7 +446,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::Csrf) {
         let (email, password) = generate_attack_identity("csrf", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.109"), Some("attack-sim-csrf"));
+        let atk09_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.109"), Some("attack-sim-csrf"), Some(&atk09_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK09-Csrf").await;
 
         println!();
@@ -448,7 +457,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk09_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::csrf::run(&client, &email, &password, &user_id, &atk09_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -477,7 +486,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::MassAssignment) {
         let (email, password) = generate_attack_identity("mass", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.110"), Some("attack-sim-mass"));
+        let atk10_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.110"), Some("attack-sim-mass"), Some(&atk10_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK10-MassAssign").await;
 
         println!();
@@ -487,7 +497,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk10_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::mass_assignment::run(&client, &email, &password, &user_id, &atk10_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -516,7 +526,8 @@ async fn main() {
     // ═══════════════════════════════════════════════
     if mode.should_run(&AttackMode::AccessTokenAbuse) {
         let (email, password) = generate_attack_identity("token-abuse", &base_password);
-        let client = ApiClient::new(&target_url, Some("192.168.1.111"), Some("attack-sim-token-abuse"));
+        let atk11_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.111"), Some("attack-sim-token-abuse"), Some(&atk11_correlation_id));
         let user_id = ensure_identity(&client, &email, &password, "ATK11-TokenAbuse").await;
 
         println!();
@@ -526,7 +537,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk11_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::access_token_abuse::run(&client, &email, &password, &user_id, &atk11_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
@@ -556,7 +567,8 @@ async fn main() {
     if mode.should_run(&AttackMode::MfaDistributed) {
         let email = env::var("MFA_TARGET_EMAIL").unwrap_or_else(|_| "admin_attack@example.com".into());
         let password = env::var("MFA_TARGET_PASSWORD").unwrap_or_else(|_| "Admin@1234!".into());
-        let client = ApiClient::new(&target_url, Some("192.168.1.112"), Some("attack-sim-mfa-dist"));
+        let atk12_correlation_id = uuid::Uuid::new_v4().to_string();
+        let client = ApiClient::new(&target_url, Some("192.168.1.112"), Some("attack-sim-mfa-dist"), Some(&atk12_correlation_id));
         let user_id = match client.login(&email, &password).await {
             Ok(res) => res.user_id,
             Err(_) => email.clone(), // fallback since MFA_REQUIRED will be returned
@@ -569,7 +581,7 @@ async fn main() {
         println!("═══════════════════════════════════════════");
         println!();
 
-        let atk12_correlation_id = uuid::Uuid::new_v4().to_string();
+
         match attacks::mfa_distributed::run(&client, &email, &password, &user_id, &atk12_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }

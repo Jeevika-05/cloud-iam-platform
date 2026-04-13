@@ -11,8 +11,8 @@
     {
       "action": "TOKEN_RACE",
       "agent_type": "SIMULATED",
-      "correlation_id": "36894728-ff9a-48af-bd44-e118efcf29a8",
-      "event_id": "4a5803e3-8866-43a9-98b0-4f7d4f4e6e88",
+      "correlation_id": "b8a7e8f0-b01d-4bd0-8a19-6e7488ec358b",
+      "event_id": "49f044dc-98b2-4e39-a4bc-dce1b51cff1e",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -20,16 +20,33 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/refresh",
       "target_type": "API",
-      "timestamp": "2026-04-13T07:07:00.894261811+00:00",
+      "timestamp": "2026-04-13T13:38:16.699590284+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-token-race@test.com",
-      "user_id": "29f0b9d6-a10c-4bcb-873e-9d2ac20a7e42"
+      "user_id": "67aa4ea6-2e51-442c-815d-d86667f742b2"
+    },
+    {
+      "action": "MFA_BRUTE_FORCE_SINGLE_IP",
+      "agent_type": "SIMULATED",
+      "correlation_id": "9debf214-0b4b-46a5-b7cd-5495112a191c",
+      "event_id": "9e156312-f425-4e44-8896-8f6ee821e0b0",
+      "event_type": "ATTACK",
+      "ip_type": "SIMULATED",
+      "result": "SECURE",
+      "severity": "MEDIUM",
+      "source_ip": "192.168.1.100",
+      "target_endpoint": "/api/v1/mfa/validate-login",
+      "target_type": "API",
+      "timestamp": "2026-04-13T13:38:16.939242280+00:00",
+      "user_agent": "attack-engine",
+      "user_email": "admin_attack@example.com",
+      "user_id": "admin_attack@example.com"
     },
     {
       "action": "PASSWORD_BRUTE",
       "agent_type": "SIMULATED",
-      "correlation_id": "24ed6ade-a7ea-4e80-a611-13c3a829366d",
-      "event_id": "daf615d1-1139-442e-9f6f-183533481500",
+      "correlation_id": "4fb12d1f-884f-4379-b44a-d1acb8963e92",
+      "event_id": "7bc31345-e3a8-4173-bc34-90f7862f78ae",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
       "result": "SECURE",
@@ -37,7 +54,7 @@
       "source_ip": "192.168.1.100",
       "target_endpoint": "/api/v1/auth/login",
       "target_type": "API",
-      "timestamp": "2026-04-13T07:07:01.052876804+00:00",
+      "timestamp": "2026-04-13T13:38:22.091042736+00:00",
       "user_agent": "attack-engine",
       "user_email": "atk-brute@test.com",
       "user_id": "atk-brute@test.com"
@@ -45,16 +62,16 @@
     {
       "action": "MFA_BRUTE_FORCE_DISTRIBUTED",
       "agent_type": "SIMULATED",
-      "correlation_id": "f8c40165-98fb-49b2-b34b-3b69cde80e00",
-      "event_id": "a8a5b1fc-cf00-409b-bc25-00f63413a086",
+      "correlation_id": "be5886df-7c02-4367-a2dd-83de7190c59f",
+      "event_id": "536eac3a-c741-45af-adcd-de5d0e9d45c7",
       "event_type": "ATTACK",
       "ip_type": "SIMULATED",
-      "result": "VULNERABLE",
+      "result": "SECURE",
       "severity": "CRITICAL",
       "source_ip": "10.10.0.1",
       "target_endpoint": "/api/v1/auth/mfa/validate-login",
       "target_type": "API",
-      "timestamp": "2026-04-13T07:07:01.296879731+00:00",
+      "timestamp": "2026-04-13T13:38:25.082577181+00:00",
       "user_agent": "attack-engine",
       "user_email": "admin_attack@example.com",
       "user_id": "admin_attack@example.com"
@@ -66,47 +83,50 @@
       "attack": "token_race_condition",
       "blocked_count": 49,
       "detection_codes": {
-        "REFRESH_TOKEN_INVALID": 27,
-        "SESSION_COMPROMISED": 19,
+        "REFRESH_TOKEN_INVALID": 9,
+        "SESSION_COMPROMISED": 15,
         "SUCCESS": 1
       },
       "error_count": 0,
       "latency": {
-        "avg_ms": 896,
-        "max_ms": 1237,
-        "min_ms": 381
+        "avg_ms": 795,
+        "max_ms": 978,
+        "min_ms": 452
       },
       "status_distribution": {
         "200": 1,
-        "401": 46,
-        "429": 3
+        "401": 24,
+        "429": 25
       },
       "success_count": 1,
-      "timestamp": "2026-04-13T07:07:00.894254294+00:00",
+      "timestamp": "2026-04-13T13:38:16.699548809+00:00",
       "total_requests": 50,
       "verdict": "SECURE"
     },
     {
       "attack": "mfa_brute_force_single_ip",
-      "error": "MFA login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
-      "identity": "admin_attack@example.com",
-      "verdict": "ERROR"
+      "blocked_count": 15,
+      "status_distribution": {
+        "429": 15
+      },
+      "total_requests": 15,
+      "verdict": "SECURE"
     },
     {
       "attack": "idor_authorization_bypass",
-      "error": "attacker login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "cannot get attacker ID: profile request failed (429): ",
       "identity": "atk-idor@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "jwt_tampering_signature_validation",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "original token rejected (status 429), cannot proceed with tampering tests",
       "identity": "atk-jwt@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "sequential_token_reuse",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "first refresh failed (status 429), cannot test reuse",
       "identity": "atk-sess-reuse@test.com",
       "verdict": "ERROR"
     },
@@ -115,68 +135,73 @@
       "blocked_count": 3,
       "brute_details": {
         "account_locked": false,
-        "attempts_before_block": 1,
+        "attempts_before_block": 24,
         "block_code": "",
         "block_status": 429,
         "rate_limited": true,
         "target_email": "atk-brute@test.com",
-        "total_attempts": 3
+        "total_attempts": 26
       },
-      "detection_codes": {},
-      "error_count": 0,
+      "detection_codes": {
+        "INVALID_CREDENTIALS": 23
+      },
+      "error_count": 23,
       "latency": {
-        "avg_ms": 2,
-        "max_ms": 3,
+        "avg_ms": 79,
+        "max_ms": 131,
         "min_ms": 2
       },
       "status_distribution": {
+        "401": 23,
         "429": 3
       },
       "success_count": 0,
-      "timestamp": "2026-04-13T07:07:01.052870721+00:00",
-      "total_requests": 3,
+      "timestamp": "2026-04-13T13:38:22.091034764+00:00",
+      "total_requests": 26,
       "verdict": "SECURE"
     },
     {
       "attack": "session_invalidation_logout",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "login failed: login failed (401): {\"success\":false,\"code\":\"INVALID_CREDENTIALS\",\"message\":\"Invalid email or password\",\"stack\":\"Error: Invalid email or password\\n    at Module.login (file:///app/src/modules/auth/auth.service.js:82:11)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\\n    at async login (file:///app/src/modules/auth/auth.controller.js:94:20)\"}",
       "identity": "atk-logout@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "api_rate_flood",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "login failed: login failed (401): {\"success\":false,\"code\":\"INVALID_CREDENTIALS\",\"message\":\"Invalid email or password\",\"stack\":\"Error: Invalid email or password\\n    at Module.login (file:///app/src/modules/auth/auth.service.js:82:11)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\\n    at async login (file:///app/src/modules/auth/auth.controller.js:94:20)\"}",
       "identity": "atk-flood@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "csrf",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "login failed: login failed (401): {\"success\":false,\"code\":\"INVALID_CREDENTIALS\",\"message\":\"Invalid email or password\",\"stack\":\"Error: Invalid email or password\\n    at Module.login (file:///app/src/modules/auth/auth.service.js:82:11)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\\n    at async login (file:///app/src/modules/auth/auth.controller.js:94:20)\"}",
       "identity": "atk-csrf@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "mass_assignment",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "login failed: login failed (401): {\"success\":false,\"code\":\"INVALID_CREDENTIALS\",\"message\":\"Invalid email or password\",\"stack\":\"Error: Invalid email or password\\n    at Module.login (file:///app/src/modules/auth/auth.service.js:82:11)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\\n    at async login (file:///app/src/modules/auth/auth.controller.js:94:20)\"}",
       "identity": "atk-mass@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "access_token_abuse",
-      "error": "login failed: login failed (429): {\"success\":false,\"message\":\"Too many requests\"}",
+      "error": "login failed: login failed (401): {\"success\":false,\"code\":\"INVALID_CREDENTIALS\",\"message\":\"Invalid email or password\",\"stack\":\"Error: Invalid email or password\\n    at Module.login (file:///app/src/modules/auth/auth.service.js:82:11)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\\n    at async login (file:///app/src/modules/auth/auth.controller.js:94:20)\"}",
       "identity": "atk-token-abuse@test.com",
       "verdict": "ERROR"
     },
     {
       "attack": "mfa_brute_force_distributed",
-      "blocked_count": 0,
-      "status_distribution": {},
-      "timestamp": "2026-04-13T07:07:01.296872159+00:00",
-      "total_requests": 0,
-      "verdict": "VULNERABLE"
+      "blocked_count": 70,
+      "status_distribution": {
+        "429": 70
+      },
+      "timestamp": "2026-04-13T13:38:25.082566746+00:00",
+      "total_requests": 70,
+      "verdict": "SECURE"
     }
   ],
-  "run_id": "ac674e19-0776-4b8a-8ffc-8cd59d5a6f92",
-  "timestamp": "2026-04-13T07:07:01.296923127+00:00",
+  "run_id": "607eb215-8c23-4f49-a921-c4b33eaaa9fe",
+  "timestamp": "2026-04-13T13:38:25.082646765+00:00",
   "total_attacks": 12
 }

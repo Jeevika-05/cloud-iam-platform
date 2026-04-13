@@ -9,7 +9,7 @@ import { app as appConfig } from '../config/index.js';
 
 function getRateLimitKey(req) {
   return (
-    req.headers['x-attack-id'] ||
+    req.headers['x-attack-id']?.toString() ||
     req.user?.id ||
     req.body?.email ||
     extractClientInfo(req).ip
