@@ -1,6 +1,7 @@
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
+use data_encoding::BASE64URL_NOPAD;
 
 #[derive(Clone)]
 pub struct ApiClient {
@@ -17,6 +18,7 @@ pub struct LoginResult {
 /// Login that returned MFA_REQUIRED instead of tokens.
 pub struct MfaLoginResult {
     pub temp_token: String,
+    pub user_id: String,
 }
 
 pub struct RefreshResult {
@@ -35,6 +37,26 @@ pub struct HttpResult {
 }
 
 impl ApiClient {
+    fn extract_jwt_sub(token: &str) -> Result<String, String> {
+        let payload = token
+            .split('.')
+            .nth(1)
+            .ok_or("Invalid tempToken format")?;
+
+        let decoded = BASE64URL_NOPAD
+            .decode(payload.as_bytes())
+            .map_err(|e| format!("tempToken decode error: {}", e))?;
+
+        let json: Value = serde_json::from_slice(&decoded)
+            .map_err(|e| format!("tempToken payload parse error: {}", e))?;
+
+        json["sub"]
+            .as_str()
+            .filter(|sub| !sub.is_empty())
+            .map(|sub| sub.to_string())
+            .ok_or("tempToken missing subject".into())
+    }
+
     pub fn new(base_url: &str, attacker_ip: Option<&str>, attacker_agent: Option<&str>, attack_id: Option<&str>) -> Self {
         use reqwest::header::{HeaderMap, HeaderValue};
         let mut headers = HeaderMap::new();
@@ -83,21 +105,27 @@ impl ApiClient {
     // ── Register ─────────────────────────────────
 
     pub async fn register(&self, email: &str, password: &str, name: &str) -> Result<(), String> {
-        let url = format!("{}/api/v1/auth/register", self.base_url);
-        let body = serde_json::json!({ "name": name, "email": email, "password": password });
+    let url = format!("{}/api/v1/auth/register", self.base_url);
+    let body = serde_json::json!({ "name": name, "email": email, "password": password });
 
-        let resp = self.client.post(&url).json(&body).send().await
-            .map_err(|e| format!("request error: {}", e))?;
+    let resp = self.client.post(&url).json(&body).send().await
+        .map_err(|e| format!("request error: {}", e))?;
 
-        let status = resp.status().as_u16();
-        if status == 201 || status == 409 {
-            Ok(())
-        } else {
-            let text = resp.text().await.unwrap_or_default();
-            Err(format!("status {}: {}", status, text))
-        }
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+
+    // ✅ Accept ALL success responses
+    if status.is_success() {
+        return Ok(());
     }
 
+    // Optional: allow already-exists case (409)
+    if status.as_u16() == 409 {
+        return Ok(());
+    }
+
+    Err(format!("status {}: {}", status, text))
+}
     // ── Login (standard — expects tokens back) ───
 
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResult, String> {
@@ -173,8 +201,9 @@ impl ApiClient {
             .as_str()
             .ok_or("No tempToken in MFA_REQUIRED response")?
             .to_string();
+        let user_id = Self::extract_jwt_sub(&temp_token)?;
 
-        Ok(MfaLoginResult { temp_token })
+        Ok(MfaLoginResult { temp_token, user_id })
     }
 
     // ── MFA setup (requires access token) ────────

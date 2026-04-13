@@ -157,7 +157,7 @@ services:
       JWT_ACTIVE_KID: key1
       JWT_KIDS: key1,key2
       ACTIVE_DEFENDER: "true"
-      SIMULATION_MODE: "false"
+      SIMULATION_MODE: "true"
       RISK_THRESHOLD_LOW: 30
       RISK_THRESHOLD_MEDIUM: 60
       RISK_THRESHOLD_HIGH: 85
@@ -172,6 +172,8 @@ services:
       - data
       - frontend
       - monitor
+    ports:
+      - "3000:3000"
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/health || exit 1']
       interval: 30s
@@ -217,7 +219,7 @@ services:
       JWT_ACTIVE_KID: key1
       JWT_KIDS: key1,key2
       ACTIVE_DEFENDER: "true"
-      SIMULATION_MODE: "false"
+      SIMULATION_MODE: "true"
       RISK_THRESHOLD_LOW: 30
       RISK_THRESHOLD_MEDIUM: 60
       RISK_THRESHOLD_HIGH: 85
@@ -263,7 +265,7 @@ services:
       JWT_ACTIVE_KID: key1
       JWT_KIDS: key1,key2
       ACTIVE_DEFENDER: "true"
-      SIMULATION_MODE: "false"
+      SIMULATION_MODE: "true"
       RISK_THRESHOLD_LOW: 30
       RISK_THRESHOLD_MEDIUM: 60
       RISK_THRESHOLD_HIGH: 85

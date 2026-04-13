@@ -53,7 +53,7 @@ pub async fn run(
             let mut bot_statuses = Vec::new();
 
             // Unique client instance per bot to use correct IP headers
-            let bot_client = ApiClient::new(&base_url, Some(bot_ip.as_str()), Some("Botnet-Attacker"));
+            let bot_client = ApiClient::new(&base_url, Some(bot_ip.as_str()), Some("Botnet-Attacker"), None);
             println!("[BOT] Using IP: {}", bot_ip);
 
             // 1. Perform login

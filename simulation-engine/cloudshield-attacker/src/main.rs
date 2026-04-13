@@ -67,17 +67,31 @@ fn generate_attack_identity(attack_name: &str, base_password: &str) -> (String, 
     (email, password)
 }
 
-/// Pre-register an attack identity and return its UUID.
-async fn ensure_identity(client: &ApiClient, email: &str, password: &str, name: &str) -> String {
-    let _ = client.register(email, password, name).await; // Ignore if already registered
+/// Pre-register an attack identity.
+///
+/// RC-2 FIX: Registration failure is now propagated, not silently ignored.
+///   - 409 Conflict  -> already registered, proceed to login
+///   - Other error   -> Err propagated; attack is skipped with ERROR verdict
+///
+/// RC-3 FIX: Returns Result<(user_id, access_token), String>.
+///   No attack runs with email-as-user_id or empty token.
+async fn ensure_identity(
+    client: &ApiClient,
+    email: &str,
+    password: &str,
+    name: &str,
+) -> Result<(String, String), String> {
+    match client.register(email, password, name).await {
+        Ok(()) => {}
+        Err(ref e) if e.contains("409") || e.contains("DUPLICATE_EMAIL") => {}
+        Err(e) => return Err(format!("registration failed for {}: {}", email, e)),
+    }
     match client.login(email, password).await {
-        Ok(res) => res.user_id,
-        Err(_) => {
-            // For MFA accounts, login returns an error "MFA_REQUIRED — use a non-MFA account"
-            // We can't trivially extract the user_id without authenticating MFA, but for test
-            // consistency, we'll return the email as a fallback if real UUID extraction fails.
-            email.to_string()
+        Ok(res) if !res.user_id.is_empty() && !res.access_token.is_empty() => {
+            Ok((res.user_id, res.access_token))
         }
+        Ok(_) => Err(format!("login returned empty credentials for {}", email)),
+        Err(e) => Err(format!("login failed for {} ({})", email, e)),
     }
 }
 
@@ -122,32 +136,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("token-race", &base_password);
         let atk01_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.101"), Some("attack-sim-token-race"), Some(&atk01_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK01-TokenRace").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-01 ▸ Token Race Condition");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::token_race::run(&client, &email, &password, &user_id, &atk01_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK01-TokenRace").await {
             Err(e) => {
-                eprintln!("[ATK-01] FAILED: {}", e);
+                eprintln!("[ATK-01] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "token_race_condition",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::token_race::run(&client, &email, &password, &user_id, &atk01_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-01] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "token_race_condition",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -163,9 +180,18 @@ async fn main() {
         let password = env::var("MFA_TARGET_PASSWORD").unwrap_or_else(|_| "Admin@1234!".into());
         let atk02_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.102"), Some("attack-sim-mfa"), Some(&atk02_correlation_id));
-        let user_id = match client.login(&email, &password).await {
-            Ok(res) => res.user_id,
-            Err(_) => email.clone(), // fallback since MFA_REQUIRED will be returned
+        let user_id = match client.login_expect_mfa(&email, &password).await {
+            Ok(res) => Some(res.user_id),
+            Err(e) => {
+                eprintln!("[ATK-02] IDENTITY FAILED: {}", e);
+                reports.push(serde_json::json!({
+                    "attack": "mfa_brute_force_single_ip",
+                    "identity": email,
+                    "verdict": "ERROR",
+                    "error": format!("identity_setup_failed: {}", e)
+                }));
+                None
+            }
         };
 
         println!();
@@ -176,22 +202,24 @@ async fn main() {
         println!();
 
 
-        match attacks::mfa_replay::run(&client, &email, &password, &user_id, &atk02_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
-            Err(e) => {
-                eprintln!("[ATK-02] FAILED: {}", e);
-                reports.push(serde_json::json!({
-                    "attack": "mfa_brute_force_single_ip",
-                    "identity": email,
-                    "verdict": "ERROR",
-                    "error": e
-                }));
+        if let Some(user_id) = user_id {
+            match attacks::mfa_replay::run(&client, &email, &password, &user_id, &atk02_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-02] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "mfa_brute_force_single_ip",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
             }
         }
     } else {
@@ -207,17 +235,19 @@ async fn main() {
         let (email, password) = generate_attack_identity("idor", &base_password);
         let atk03_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.103"), Some("attack-sim-idor"), Some(&atk03_correlation_id));
-        let user_id = email.clone(); // IDOR registers its own users; fall back to email as ID
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-03 ▸ IDOR Authorization Bypass");
-        println!("  Identity: {} (creates attacker+victim)", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::idor::run(&client, &email, &password, &user_id, &atk03_correlation_id).await {
+  
+        match ensure_identity(&client, &email, &password, "ATK03-IDOR-Attacker").await {
+            Err(e) => {
+                eprintln!("[ATK-03] IDENTITY FAILED: {}", e);
+                reports.push(serde_json::json!({
+                    "attack": "idor_authorization_bypass",
+                    "identity": email,
+                    "verdict": "ERROR",
+                    "error": format!("identity_setup_failed: {}", e)
+                }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::idor::run(&client, &email, &password, &user_id, &atk03_correlation_id).await {
             Ok((report, event)) => {
                 if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
                 let val = serde_json::to_value(&report).unwrap();
@@ -235,6 +265,8 @@ async fn main() {
                 }));
             }
         }
+            }
+        }
     } else {
         println!();
         println!("[SKIP] ATK-03 (IDOR) — not selected");
@@ -247,32 +279,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("jwt", &base_password);
         let atk04_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.104"), Some("attack-sim-jwt"), Some(&atk04_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK04-JWT").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-04 ▸ JWT Tampering / Signature Bypass");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::jwt_tamper::run(&client, &email, &password, &user_id, &atk04_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK04-JWT").await {
             Err(e) => {
-                eprintln!("[ATK-04] FAILED: {}", e);
+                eprintln!("[ATK-04] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "jwt_tampering_signature_validation",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::jwt_tamper::run(&client, &email, &password, &user_id, &atk04_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-04] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "jwt_tampering_signature_validation",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -287,32 +322,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("sess-reuse", &base_password);
         let atk05_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.105"), Some("attack-sim-sess-reuse"), Some(&atk05_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK05-SessReuse").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-05 ▸ Sequential Token Reuse");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::session_reuse::run(&client, &email, &password, &user_id, &atk05_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK05-SessReuse").await {
             Err(e) => {
-                eprintln!("[ATK-05] FAILED: {}", e);
+                eprintln!("[ATK-05] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "sequential_token_reuse",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::session_reuse::run(&client, &email, &password, &user_id, &atk05_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-05] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "sequential_token_reuse",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -328,32 +366,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("brute", &base_password);
         let atk06_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.106"), Some("attack-sim-brute"), Some(&atk06_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK06-Brute").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-06 ▸ Password Brute Force");
-        println!("  Identity: {} (will be locked)", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::password_brute::run(&client, &email, &password, &user_id, &atk06_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK06-Brute").await {
             Err(e) => {
-                eprintln!("[ATK-06] FAILED: {}", e);
+                eprintln!("[ATK-06] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "password_brute_force",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::password_brute::run(&client, &email, &password, &user_id, &atk06_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-06] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "password_brute_force",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -368,32 +409,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("logout", &base_password);
         let atk07_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.107"), Some("attack-sim-logout"), Some(&atk07_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK07-Logout").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-07 ▸ Session Invalidation (Logout)");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::session_invalidation::run(&client, &email, &password, &user_id, &atk07_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK07-Logout").await {
             Err(e) => {
-                eprintln!("[ATK-07] FAILED: {}", e);
+                eprintln!("[ATK-07] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "session_invalidation_logout",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::session_invalidation::run(&client, &email, &password, &user_id, &atk07_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-07] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "session_invalidation_logout",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -408,32 +452,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("flood", &base_password);
         let atk08_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.108"), Some("attack-sim-flood"), Some(&atk08_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK08-Flood").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-08 ▸ API Rate Flood");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::rate_flood::run(&client, &email, &password, &user_id, &atk08_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK08-Flood").await {
             Err(e) => {
-                eprintln!("[ATK-08] FAILED: {}", e);
+                eprintln!("[ATK-08] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "api_rate_flood",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::rate_flood::run(&client, &email, &password, &user_id, &atk08_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-08] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "api_rate_flood",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -448,32 +495,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("csrf", &base_password);
         let atk09_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.109"), Some("attack-sim-csrf"), Some(&atk09_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK09-Csrf").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-09 ▸ CSRF (Cross-Site Request Forgery)");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::csrf::run(&client, &email, &password, &user_id, &atk09_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK09-Csrf").await {
             Err(e) => {
-                eprintln!("[ATK-09] FAILED: {}", e);
+                eprintln!("[ATK-09] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "csrf",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::csrf::run(&client, &email, &password, &user_id, &atk09_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-09] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "csrf",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -488,32 +538,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("mass", &base_password);
         let atk10_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.110"), Some("attack-sim-mass"), Some(&atk10_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK10-MassAssign").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-10 ▸ Mass Assignment Attack");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::mass_assignment::run(&client, &email, &password, &user_id, &atk10_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK10-MassAssign").await {
             Err(e) => {
-                eprintln!("[ATK-10] FAILED: {}", e);
+                eprintln!("[ATK-10] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "mass_assignment",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::mass_assignment::run(&client, &email, &password, &user_id, &atk10_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-10] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "mass_assignment",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -528,32 +581,35 @@ async fn main() {
         let (email, password) = generate_attack_identity("token-abuse", &base_password);
         let atk11_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.111"), Some("attack-sim-token-abuse"), Some(&atk11_correlation_id));
-        let user_id = ensure_identity(&client, &email, &password, "ATK11-TokenAbuse").await;
-
-        println!();
-        println!("═══════════════════════════════════════════");
-        println!("  ATK-11 ▸ Access Token Abuse (Post-Logout)");
-        println!("  Identity: {}", email);
-        println!("═══════════════════════════════════════════");
-        println!();
-
-
-        match attacks::access_token_abuse::run(&client, &email, &password, &user_id, &atk11_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
+        match ensure_identity(&client, &email, &password, "ATK11-TokenAbuse").await {
             Err(e) => {
-                eprintln!("[ATK-11] FAILED: {}", e);
+                eprintln!("[ATK-11] IDENTITY FAILED: {}", e);
                 reports.push(serde_json::json!({
                     "attack": "access_token_abuse",
                     "identity": email,
                     "verdict": "ERROR",
-                    "error": e
+                    "error": format!("identity_setup_failed: {}", e)
                 }));
+            }
+            Ok((user_id, _access_token)) => {
+            match attacks::access_token_abuse::run(&client, &email, &password, &user_id, &atk11_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-11] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "access_token_abuse",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
+            }
             }
         }
     } else {
@@ -569,9 +625,18 @@ async fn main() {
         let password = env::var("MFA_TARGET_PASSWORD").unwrap_or_else(|_| "Admin@1234!".into());
         let atk12_correlation_id = uuid::Uuid::new_v4().to_string();
         let client = ApiClient::new(&target_url, Some("192.168.1.112"), Some("attack-sim-mfa-dist"), Some(&atk12_correlation_id));
-        let user_id = match client.login(&email, &password).await {
-            Ok(res) => res.user_id,
-            Err(_) => email.clone(), // fallback since MFA_REQUIRED will be returned
+        let user_id = match client.login_expect_mfa(&email, &password).await {
+            Ok(res) => Some(res.user_id),
+            Err(e) => {
+                eprintln!("[ATK-12] IDENTITY FAILED: {}", e);
+                reports.push(serde_json::json!({
+                    "attack": "mfa_brute_force_distributed",
+                    "identity": email,
+                    "verdict": "ERROR",
+                    "error": format!("identity_setup_failed: {}", e)
+                }));
+                None
+            }
         };
 
         println!();
@@ -582,22 +647,24 @@ async fn main() {
         println!();
 
 
-        match attacks::mfa_distributed::run(&client, &email, &password, &user_id, &atk12_correlation_id).await {
-            Ok((report, event)) => {
-                if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
-                let val = serde_json::to_value(&report).unwrap();
-                emit_graph_event(event, &mut graph_events);
-                println!("[ATK] Verdict: {}", report.verdict);
-                reports.push(val);
-            }
-            Err(e) => {
-                eprintln!("[ATK-12] FAILED: {}", e);
-                reports.push(serde_json::json!({
-                    "attack": "mfa_brute_force_distributed",
-                    "identity": email,
-                    "verdict": "ERROR",
-                    "error": e
-                }));
+        if let Some(user_id) = user_id {
+            match attacks::mfa_distributed::run(&client, &email, &password, &user_id, &atk12_correlation_id).await {
+                Ok((report, event)) => {
+                    if report.verdict == "CRITICAL" || report.verdict == "VULNERABLE" { any_critical = true; }
+                    let val = serde_json::to_value(&report).unwrap();
+                    emit_graph_event(event, &mut graph_events);
+                    println!("[ATK] Verdict: {}", report.verdict);
+                    reports.push(val);
+                }
+                Err(e) => {
+                    eprintln!("[ATK-12] FAILED: {}", e);
+                    reports.push(serde_json::json!({
+                        "attack": "mfa_brute_force_distributed",
+                        "identity": email,
+                        "verdict": "ERROR",
+                        "error": e
+                    }));
+                }
             }
         }
     } else {
@@ -653,6 +720,7 @@ async fn main() {
         std::process::exit(0);
     }
 }
+
 
 async fn wait_for_api(client: &ApiClient) {
     println!("[WAIT] Waiting for API...");

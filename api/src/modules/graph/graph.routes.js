@@ -19,12 +19,14 @@ router.get(
       const { type = 'attack-defense' } = req.query;
       const limit = Math.min(parseInt(req.query.limit) || 50, 100);
       const severity = req.query.severity || null;
+      const correlationId = req.query.correlation_id || null;
 
       const queries = {
         'attack-defense': `
           MATCH (a:Event {event_type:'ATTACK'})
           WHERE ($severity IS NULL OR a.severity = $severity)
-          OPTIONAL MATCH (a)<-[r1:TRIGGERED_DEFENSE]-(d:Event {event_type:'DEFENSE'})
+            AND ($correlationId IS NULL OR a.correlation_id = $correlationId)
+          OPTIONAL MATCH (a)-[r1:TRIGGERED_DEFENSE]->(d:Event {event_type:'DEFENSE'})
           OPTIONAL MATCH (d)-[r2:APPLIED]->(da:DefenseAction)
           RETURN a, d, r1, da, r2
           ORDER BY a.timestamp DESC
@@ -33,18 +35,22 @@ router.get(
         'attack-chain': `
           MATCH (e:Event)-[r:NEXT]->(x)
           WHERE ($severity IS NULL OR e.severity = $severity)
+            AND ($correlationId IS NULL OR e.correlation_id = $correlationId OR x.correlation_id = $correlationId)
           RETURN e, r, x
           LIMIT $limit
         `,
         'user-attack': `
           MATCH (n)-[r:ACTED|TARGETED]->(e:Event)
           WHERE ($severity IS NULL OR e.severity = $severity)
+            AND ($correlationId IS NULL OR e.correlation_id = $correlationId)
           RETURN n, r, e
           LIMIT $limit
         `,
         'recent': `
           MATCH (e:Event)
-          WHERE e.timestamp IS NOT NULL AND ($severity IS NULL OR e.severity = $severity)
+          WHERE e.timestamp IS NOT NULL
+            AND ($severity IS NULL OR e.severity = $severity)
+            AND ($correlationId IS NULL OR e.correlation_id = $correlationId)
           OPTIONAL MATCH (e)-[r]->(x)
           RETURN e, r, x
           ORDER BY e.timestamp DESC
@@ -59,7 +65,11 @@ router.get(
       const driver = getNeo4jDriver();
       session = driver.session({ defaultAccessMode: neo4j.session.READ });
 
-      const result = await session.run(queries[type], { limit: neo4j.int(limit), severity });
+      const result = await session.run(queries[type], {
+        limit: neo4j.int(limit),
+        severity,
+        correlationId,
+      });
 
       const nodesMap = new Map();
       const edgesMap = new Map();
@@ -117,6 +127,7 @@ router.get(
         res,
         {
           type,
+          correlation_id: correlationId,
           nodes: Array.from(nodesMap.values()).slice(0, 200),
           edges: Array.from(edgesMap.values()).slice(0, 200),
         },
