@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as authApi from '../api/auth.api';
 import * as userApi from '../api/user.api';
-import { setAccessToken } from '../api/client';
+import { setAccessToken, fetchCsrfToken, resetCsrfState } from '../api/client';
 import { AuthContext } from './auth-context';
-import { fetchCsrfToken } from '../api/client';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -34,28 +33,31 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let isMounted = true;
 
-    
-
     const bootstrap = async () => {
-  try {
-    await fetchCsrfToken();            // ensure CSRF is ready for login/logout/etc.
-    const res = await authApi.refresh();
-    if (!isMounted) return;
-    const { accessToken } = res;
-    setAccessToken(accessToken);
-    const profile = await userApi.getProfile();
-    if (!isMounted) return;
-    setUser(profile);
-    setIsAuthenticated(true);
-  } catch {
-    if (!isMounted) return;
-    setAccessToken(null);
-    setUser(null);
-    setIsAuthenticated(false);
-  } finally {
-    if (isMounted) setLoading(false);
-  }
-};
+      try {
+        await fetchCsrfToken(); // ensure CSRF is ready
+
+        const res = await authApi.refresh();
+        if (!isMounted) return;
+
+        const { accessToken } = res;
+        setAccessToken(accessToken);
+
+        const profile = await userApi.getProfile();
+        if (!isMounted) return;
+
+        setUser(profile);
+        setIsAuthenticated(true);
+      } catch {
+        if (!isMounted) return;
+
+        setAccessToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
 
     bootstrap();
 
@@ -65,9 +67,13 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ─── Login ──────────────────────────────────────────────────────────────────
-  // Returns a status object — the calling component handles navigation.
   const login = useCallback(async (email, password) => {
     const data = await authApi.login({ email, password });
+
+    // ✅ Reset CSRF only if login attempt is valid
+    if (data?.accessToken || data?.status === 'MFA_REQUIRED') {
+      resetCsrfState();
+    }
 
     if (data?.status === 'MFA_REQUIRED') {
       setTempToken(data.tempToken);
@@ -78,18 +84,21 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(accessToken);
     setUser(loggedInUser);
     setIsAuthenticated(true);
+
     return { success: true, user: loggedInUser };
   }, []);
 
   // ─── Logout ─────────────────────────────────────────────────────────────────
-  // Invalidates backend session, then clears client state.
-  // Always clears client state even if the API call fails.
   const logout = useCallback(async () => {
     try {
       await authApi.logout();
     } catch {
-      // Backend unreachable or session already expired — clear client state anyway
+      // ignore errors
     }
+
+    // ✅ Reset CSRF state
+    resetCsrfState();
+
     setAccessToken(null);
     setUser(null);
     setIsAuthenticated(false);
@@ -97,9 +106,10 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ─── Complete MFA Login ─────────────────────────────────────────────────────
-  // Called by MfaPage after successful TOTP validation.
-  // Sets token + user + auth state directly — same as login() success path.
   const completeMfaLogin = useCallback((accessToken, mfaUser) => {
+    // ✅ Reset CSRF state
+    resetCsrfState();
+
     setAccessToken(accessToken);
     setUser(mfaUser);
     setIsAuthenticated(true);

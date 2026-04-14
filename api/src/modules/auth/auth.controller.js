@@ -58,19 +58,27 @@ export const googleCallback = async (req, res, next) => {
 
     if (!code) {
       const idTokenHeader = req.headers['x-google-id-token'];
-      if (!idTokenHeader || typeof idTokenHeader !== 'string') throw new Error('Authorization code missing');
-      if (idTokenHeader.length > 4096) throw new Error('ID token too large');
+      if (!idTokenHeader || typeof idTokenHeader !== 'string') {
+        throw new Error('Authorization code missing');
+      }
+      if (idTokenHeader.length > 4096) {
+        throw new Error('ID token too large');
+      }
       req.query.idToken = idTokenHeader;
     } else {
-      // Validate OAuth State to prevent CSRF / Session Fixation
+      // ✅ State validation
       if (!stateCookie || !state || stateCookie !== state) {
         throw new AppError('Invalid OAuth state parameter', 403, 'OAUTH_CSRF_FAILED');
       }
       res.clearCookie('oauth_state', getCookieOptions(req));
     }
 
-    const idToken = req.query.idToken || (await googleAuthService.exchangeCodeForIdToken(code));
-    const { googleId, email, name, emailVerified } = await googleAuthService.verifyGoogleIdToken(idToken);
+    const idToken =
+      req.query.idToken ||
+      (await googleAuthService.exchangeCodeForIdToken(code));
+
+    const { googleId, email, name, emailVerified } =
+      await googleAuthService.verifyGoogleIdToken(idToken);
 
     const result = await authService.handleGoogleAuth({
       googleId,
@@ -79,25 +87,41 @@ export const googleCallback = async (req, res, next) => {
       emailVerified,
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
-      correlationId: req.correlationId
+      correlationId: req.correlationId,
     });
 
+    const frontendUrl =
+      process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    // 🔥 FIX 1: MFA redirect
     if (result.status === 'MFA_REQUIRED') {
-      return successResponse(res, result, 'MFA token required');
+      return res.redirect(
+        `${frontendUrl}/auth/callback?mfa=true&tempToken=${encodeURIComponent(
+          result.tempToken
+        )}`
+      );
     }
 
+    // ✅ Set refresh token cookie
     res.cookie('refreshToken', result.refreshToken, {
       ...getCookieOptions(req),
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    return res.redirect(`${frontendUrl}/auth/callback`);
+    // 🔥 FIX 2: pass access token to frontend
+    return res.redirect(
+      `${frontendUrl}/auth/callback?token=${encodeURIComponent(
+        result.accessToken
+      )}`
+    );
   } catch (err) {
-    next(err);
+    const frontendUrl =
+      process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    // 🔥 FIX 3: redirect instead of JSON error
+    return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
   }
 };
-
 // ─────────────────────────────────────────────
 // REGISTER
 // ─────────────────────────────────────────────

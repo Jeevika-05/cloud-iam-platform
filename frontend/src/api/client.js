@@ -80,17 +80,39 @@ const client = axios.create({
 axios.defaults.withCredentials = true;
 
 let csrfPromise = null;
+let csrfFailed = false;
+export const resetCsrfState = () => {
+  csrfFailed = false;
+  csrfPromise = null;
+};
 
 // Request Interceptor: Attach access token if available and handle CSRF fetching
 client.interceptors.request.use(
   async (config) => {
     // Lazily evaluate CSRF lock natively before arbitrary mutations
-    if (config.url !== '/auth/csrf' && !client.defaults.headers.common['X-CSRF-Token']) {
-      if (!csrfPromise) {
-        csrfPromise = fetchCsrfToken().catch(() => null);
-      }
-      await csrfPromise;
-    }
+    if (
+  config.url !== '/auth/csrf' &&
+  !client.defaults.headers.common['X-CSRF-Token'] &&
+  !csrfFailed
+) {
+  if (!csrfPromise) {
+    csrfPromise = fetchCsrfToken()
+      .catch((err) => {
+        console.error('CSRF fetch failed:', err);
+        csrfFailed = true;
+
+        // Reset after 30s (retry window)
+        setTimeout(() => {
+          csrfFailed = false;
+          csrfPromise = null;
+        }, 30000);
+
+        return null;
+      });
+  }
+
+  await csrfPromise;
+}
 
     const token = getAccessToken();
     if (token) {

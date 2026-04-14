@@ -1,4 +1,4 @@
-import { extractClientInfo, getClientIp } from '../utils/clientInfo.js';
+import { extractClientInfo } from '../utils/clientInfo.js';
 import logger from '../utils/logger.js';
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
@@ -16,60 +16,73 @@ function getRateLimitKey(req) {
   );
 }
 
+function makeStore() {
+  return new RedisStore({ sendCommand: (...args) => redisClient.call(...args) });
+}
+
+// ─── Global API limiter — generous, catches only true abuse ───────────────────
+// Applied at app level to ALL /api/v1/* routes.
+// Per-route limiters below enforce tighter limits where it matters.
 export const apiLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand: (...args) => redisClient.call(...args),
-  }),
+  store: makeStore(),
   windowMs: 15 * 60 * 1000,
-  max: appConfig.isProduction ? 100 : 50,
+  max: 300,                        // FIX: was 50 (dev) / 100 (prod) — too tight
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests' },
-  keyGenerator: (req) => getRateLimitKey(req),
-  handler: (req, res, next, options) => {
+  keyGenerator: getRateLimitKey,
+  skip: (req) => req.path === '/auth/csrf', // FIX: CSRF fetch must never be rate-blocked
+  handler: (req, res, _next, options) => {
     rateLimitCounter.inc({ type: 'api' });
     res.setHeader('X-RateLimit-Error', 'Too many requests');
     res.status(options.statusCode).json(options.message);
   },
 });
 
+// ─── Auth limiter — applied only to login / register / refresh ────────────────
 export const authLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand: (...args) => redisClient.call(...args),
-  }),
+  store: makeStore(),
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 20,                         // FIX: was 100 — brute-force protection needs to be strict
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests' },
-  keyGenerator: (req) => getRateLimitKey(req),
-  handler: (req, res, next, options) => {
+  keyGenerator: getRateLimitKey,
+  handler: (req, res, _next, options) => {
     rateLimitCounter.inc({ type: 'auth' });
     res.setHeader('X-RateLimit-Error', 'Too many requests');
     res.status(options.statusCode).json(options.message);
   },
 });
 
-// 🔐 SECURITY FIX: Strict MFA rate limiting to prevent TOTP brute-force
+// ─── CSRF limiter — very generous, must never block normal traffic ─────────────
+// FIX: dedicated limiter prevents CSRF fetch from being blocked by apiLimiter
+export const csrfLimiter = rateLimit({
+  store: makeStore(),
+  windowMs: 60 * 1000,             // 1 minute window
+  max: 30,                         // 30 CSRF fetches/min is more than enough
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => extractClientInfo(req).ip,
+  handler: (req, res, _next, options) => {
+    rateLimitCounter.inc({ type: 'csrf' });
+    res.status(options.statusCode).json({ success: false, message: 'Too many requests' });
+  },
+});
+
+// ─── MFA limiter — strict TOTP brute-force protection ────────────────────────
 export const mfaLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand: (...args) => redisClient.call(...args),
-  }),
+  store: makeStore(),
   windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
     const defaultKey = getRateLimitKey(req);
-
     try {
       const tempToken = req.body?.tempToken;
       if (!tempToken) return `mfa-ip:${defaultKey}`;
-
       const decoded = verifyTempToken(tempToken);
-
-      // per-user limiter (prevents distributed MFA attacks)
-      // Allow attack-id to override even here to isolate separate simulated attacks
       return `mfa:${req.headers['x-attack-id'] || decoded.sub}`;
     } catch {
       return `mfa-ip:${defaultKey}`;
@@ -80,40 +93,27 @@ export const mfaLimiter = rateLimit({
     code: 'MFA_RATE_LIMITED',
     message: 'Too many MFA attempts. Please try again later.',
   },
-  handler: (req, res, next, options) => {
+  handler: (req, res, _next, options) => {
     let type = 'mfa_ip';
     try {
-      const tempToken = req.body?.tempToken;
-      if (tempToken) {
-        verifyTempToken(tempToken);
-        type = 'mfa_user';
-      }
-    } catch {
-      // ignore and leave as mfa_ip
-    }
+      if (req.body?.tempToken) { verifyTempToken(req.body.tempToken); type = 'mfa_user'; }
+    } catch { /* leave as mfa_ip */ }
     rateLimitCounter.inc({ type });
     res.setHeader('X-RateLimit-Error', 'Too many requests');
     res.status(options.statusCode).json(options.message);
   },
 });
 
-// ─────────────────────────────────────────────
-// INTERNAL LIMITER — service-to-service routes only
-// Applied to /api/internal/* BEFORE internalAuth.
-// 50 requests per 15 minutes, keyed by IP.
-// ─────────────────────────────────────────────
+// ─── Internal service limiter ──────────────────────────────────────────────────
 export const internalLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand: (...args) => redisClient.call(...args),
-  }),
+  store: makeStore(),
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 50,                         // FIX: was 5 (comment said 50 — code was wrong)
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => extractClientInfo(req).ip,
-  handler: (req, res, next, options) => {
+  handler: (req, res, _next, options) => {
     rateLimitCounter.inc({ type: 'internal' });
-    // 🔒 SEC-16: Use structured logger instead of console.log
     logger.warn('INTERNAL_RATE_LIMITED', { ip: extractClientInfo(req).ip, path: req.originalUrl });
     res.setHeader('X-RateLimit-Error', 'Too many requests');
     res.status(options.statusCode).json(options.message);
@@ -121,7 +121,6 @@ export const internalLimiter = rateLimit({
   message: {
     success: false,
     code: 'INTERNAL_RATE_LIMITED',
-    message: 'Too many internal requests. Please try again later.',
+    message: 'Too many internal requests.',
   },
 });
-

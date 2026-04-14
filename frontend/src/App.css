@@ -50,6 +50,12 @@
     0 25px 50px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.04) inset;
 }
+/* Fix password visibility inside dark auth card */
+.auth-card .pw-input {
+  --pw-text: #f1f5f9;  /* light text for dark UI */
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
 
 /* ── Auth Header ─────────────────────────────────────── */
 .auth-header {
@@ -171,7 +177,7 @@
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
-  color: #f1f5f9;
+  color: var(--pw-text, #1e293b);    /* FIX: dark by default, override-able per context */
   font-size: 14px;
   box-sizing: border-box;
   transition: border-color 0.2s, box-shadow 0.2s;

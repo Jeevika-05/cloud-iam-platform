@@ -13,10 +13,10 @@ const STRENGTH_COLORS = ['', '#ef4444', '#f97316', '#eab308', '#22c55e'];
 function getPasswordStrength(password) {
   if (!password) return 0;
   let score = 0;
-  if (password.length >= 8)            score++;
-  if (/[A-Z]/.test(password))          score++;
-  if (/[0-9]/.test(password))          score++;
-  if (/[^A-Za-z0-9]/.test(password))  score++;
+  if (password.length >= 8) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
   return score;
 }
 
@@ -27,12 +27,13 @@ const PasswordInput = ({
   placeholder = 'Password',
   showStrength = false,
   autoComplete,
+  className = '', // ✅ FIX: allow override
 }) => {
   const [show, setShow] = useState(false);
 
   const strength = showStrength ? getPasswordStrength(value) : 0;
-  const strengthLabel  = STRENGTH_LABELS[strength];
-  const strengthColor  = STRENGTH_COLORS[strength];
+  const strengthLabel = STRENGTH_LABELS[strength];
+  const strengthColor = STRENGTH_COLORS[strength];
 
   return (
     <div className="pw-wrapper">
@@ -44,9 +45,11 @@ const PasswordInput = ({
           onChange={onChange}
           placeholder={placeholder}
           autoComplete={autoComplete}
-          className="pw-input"
+          // ✅ FIX: use external class if provided
+          className={className || 'pw-input'}
           required
         />
+
         <button
           type="button"
           className="pw-eye-btn"
@@ -65,11 +68,16 @@ const PasswordInput = ({
               <div
                 key={i}
                 className="pw-strength-seg"
-                style={{ background: i <= strength ? strengthColor : '#e5e7eb' }}
+                style={{
+                  background: i <= strength ? strengthColor : '#e5e7eb'
+                }}
               />
             ))}
           </div>
-          <span className="pw-strength-label" style={{ color: strengthColor }}>
+          <span
+            className="pw-strength-label"
+            style={{ color: strengthColor }}
+          >
             {strengthLabel}
           </span>
         </div>

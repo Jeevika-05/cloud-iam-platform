@@ -58,9 +58,9 @@ const Login = () => {
           </div>
 
           <div className="max-w-[420px] mt-auto mb-20 space-y-8">
-            <h1 className="text-[34px] font-semibold tracking-tight text-white leading-[1.15]">
+           <div className="text-[34px] font-semibold tracking-tight text-white leading-[1.15]">
               Identity infrastructure <br/> for scale.
-            </h1>
+           </div>
             
             <div className="space-y-5">
               <div className="flex items-start gap-4 opacity-80 hover:opacity-100 transition-opacity duration-300">

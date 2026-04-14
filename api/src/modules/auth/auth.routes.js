@@ -4,7 +4,7 @@ import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import * as authService from './auth.service.js';
-import { authLimiter, mfaLimiter, apiLimiter } from '../../shared/middleware/rateLimiter.js';
+import { authLimiter, mfaLimiter,csrfLimiter, apiLimiter } from '../../shared/middleware/rateLimiter.js';
 import { validate, registerRules, loginRules, sessionIdParamRule } from '../../shared/middleware/validate.js';
 import { requireCsrf } from '../../shared/middleware/requireCsrf.js';
 
@@ -14,8 +14,7 @@ const router = Router();
 // ─────────────────────────────────────────────
 // Public routes — no authentication required
 // ─────────────────────────────────────────────
-router.get('/csrf', apiLimiter, authController.getCsrfToken);
-
+router.get('/csrf', csrfLimiter, authController.getCsrfToken);
 router.post('/register', authLimiter, registerRules, validate, authController.register);
 
 router.get('/google', authController.googleAuth);
@@ -47,7 +46,6 @@ router.post(
 router.get(
   '/profile',
   authenticate,
-  apiLimiter,
   requirePermission('profile:read'),
   authorizePolicy({ action: 'read', resource: 'user', getResource: req => ({ id: req.user.id }) }),
   authController.getProfile
@@ -57,7 +55,7 @@ router.get(
 router.patch(
   '/profile',
   authenticate,
-  apiLimiter,
+    
   requirePermission('profile:update'),
   requireCsrf,
   authorizePolicy({ action: 'update', resource: 'user', getResource: req => ({ id: req.user.id }) }),
