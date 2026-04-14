@@ -214,7 +214,7 @@ const AdminDashboard = ({ metrics, loading, error, darkMode, correlationId, setC
       <GraphSection darkMode={darkMode} correlationId={correlationId} setCorrelationId={setCorrelationId} />
       <ActivitySection />
     </div>
-    <SimulationPanel onSimulationComplete={(res) => setCorrelationId(res.correlationId)} />
+   
     <GrafanaSection />
   </div>
 );
@@ -226,7 +226,7 @@ const AnalystDashboard = ({ metrics, loading, error, darkMode, correlationId, se
       <ActivitySection />
     </div>
     <MetricsSection metrics={metrics} loading={loading} error={error} />
-    <SimulationPanel onSimulationComplete={(res) => setCorrelationId(res.correlationId)} />
+    
   </div>
 );
 

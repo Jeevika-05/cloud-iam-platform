@@ -10,16 +10,16 @@ import AppError from '../../shared/utils/AppError.js';
 // Cookie config (reuse everywhere)
 const getCookieOptions = (req) => {
   const isProd = process.env.NODE_ENV === 'production';
-  // Use SameSite: None explicitly if scaling out to strict multi-domain production. 
-  // Otherwise, fallback to Lax which natively protects identical-domain setups.
-  const isCrossDomain = process.env.CROSS_DOMAIN_PROD === 'true'; 
+  const isCrossDomain = process.env.CROSS_DOMAIN_PROD === 'true';
+  const isSecureContext = isProd || isCrossDomain || req.secure || req.headers['x-forwarded-proto'] === 'https';
   const sameSiteMode = isCrossDomain ? 'none' : 'lax';
 
   return {
     httpOnly: true,
-    secure: isProd || (isCrossDomain && sameSiteMode === 'none'), // None MUST be secure
+    // secure: true whenever the connection is actually HTTPS, regardless of NODE_ENV string
+    secure: isSecureContext,
     sameSite: sameSiteMode,
-    path: "/"
+    path: '/',
   };
 };
 
@@ -269,20 +269,20 @@ export const refresh = async (req, res, next) => {
 export const logout = async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken;
+    // Extract access token from Authorization header to blacklist it
+    const authHeader = req.headers.authorization;
+    const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
 
     if (refreshToken) {
-      await authService.logout(refreshToken, { correlationId: req.correlationId });
+      await authService.logout(refreshToken, {
+        correlationId: req.correlationId,
+        accessToken,  // pass for blacklisting
+      });
     }
-
-    // Clear cookie
     res.clearCookie('refreshToken', getCookieOptions(req));
-
     return successResponse(res, {}, 'Logged out successfully');
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
-
 // ─────────────────────────────────────────────
 // GET PROFILE
 // ─────────────────────────────────────────────

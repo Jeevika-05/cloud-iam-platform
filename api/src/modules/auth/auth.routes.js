@@ -4,7 +4,7 @@ import { authenticate } from '../../shared/middleware/authenticate.js';
 import { requirePermission } from '../../shared/middleware/requirePermission.js';
 import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import * as authService from './auth.service.js';
-import { authLimiter, mfaLimiter,csrfLimiter, apiLimiter } from '../../shared/middleware/rateLimiter.js';
+import { authLimiter, mfaLimiter,csrfLimiter, apiLimiter,perUserLoginLimiter } from '../../shared/middleware/rateLimiter.js';
 import { validate, registerRules, loginRules, sessionIdParamRule } from '../../shared/middleware/validate.js';
 import { requireCsrf } from '../../shared/middleware/requireCsrf.js';
 
@@ -20,7 +20,7 @@ router.post('/register', authLimiter, registerRules, validate, authController.re
 router.get('/google', authController.googleAuth);
 router.get('/google/callback', authController.googleCallback);
 
-router.post('/login', authLimiter, loginRules, validate, authController.login);
+router.post('/login', perUserLoginLimiter, authLimiter, loginRules, validate, authController.login);
 
 // SECURITY FIX: mfaLimiter (5 attempts/15min) replaces authLimiter to prevent TOTP brute-force
 router.post('/mfa/validate-login', mfaLimiter, authController.validateMfaLogin);

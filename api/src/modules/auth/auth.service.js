@@ -631,44 +631,40 @@ export const refresh = async (token, { ipAddress, userAgent, correlationId }) =>
 // ─────────────────────────────────────────────
 // LOGOUT (CURRENT SESSION)
 // ─────────────────────────────────────────────
-export const logout = async (token, { correlationId } = {}) => {
-  if (!token) {
-    throw new AppError('Token missing', 401, 'LOGOUT_FAILED');
-  }
+export const logout = async (token, { correlationId, accessToken } = {}) => {
+  if (!token) throw new AppError('Token missing', 401, 'LOGOUT_FAILED');
 
   const decoded = verifyRefreshToken(token);
+  if (!decoded?.jti) throw new AppError('Invalid token', 401, 'LOGOUT_FAILED');
 
-  if (!decoded?.jti) {
-    throw new AppError('Invalid token', 401, 'LOGOUT_FAILED');
-  }
-
-  const session = await prisma.session.findUnique({
-    where: { id: decoded.jti },
-  });
-
-  if (!session || session.revoked) {
-    throw new AppError('Session already invalid', 400, 'LOGOUT_FAILED');
-  }
+  const session = await prisma.session.findUnique({ where: { id: decoded.jti } });
+  if (!session || session.revoked) throw new AppError('Session already invalid', 400, 'LOGOUT_FAILED');
 
   await prisma.session.update({
     where: { id: decoded.jti },
     data: { revoked: true }
   });
 
-  await logSecurityEvent({
-    userId: decoded.sub,
-    action: 'LOGOUT',
-    status: 'SUCCESS',
-    ip: null,
-    userAgent: null,
-    correlationId,
-    sessionId: decoded.jti,
-    metadata: { jti: decoded.jti },
-  });
+  // Blacklist the access token in Redis for its remaining TTL
+  // This ensures the access token is immediately invalid even before it expires
+  if (accessToken) {
+    try {
+      const decodedAccess = jwtLib.decode(accessToken);
+      if (decodedAccess?.jti && decodedAccess?.exp) {
+        const ttl = Math.max(0, decodedAccess.exp - Math.floor(Date.now() / 1000));
+        if (ttl > 0) {
+          await redisClient.set(`blacklist:at:${decodedAccess.jti}`, '1', 'EX', ttl);
+        }
+      }
+    } catch (e) {
+      logger.warn('LOGOUT_BLACKLIST_FAILED', { error: e.message });
+    }
+  }
 
+  await logSecurityEvent({ userId: decoded.sub, action: 'LOGOUT', status: 'SUCCESS',
+    ip: null, userAgent: null, correlationId, sessionId: decoded.jti });
   logger.info('LOGOUT', { userId: decoded.sub, jti: decoded.jti });
 };
-
 // ─────────────────────────────────────────────
 // GET PROFILE
 // ─────────────────────────────────────────────

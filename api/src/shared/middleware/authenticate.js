@@ -4,7 +4,7 @@ import prisma from '../config/database.js';
 import logger from '../utils/logger.js';
 import { extractClientInfo } from '../utils/clientInfo.js';
 import { authFailureCounter } from '../../metrics/metrics.js';
-
+import redisClient from '../config/redis.js'; 
 export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -32,6 +32,11 @@ export const authenticate = async (req, res, next) => {
     // 2. Verify JWT
     // ─────────────────────────────────────────────
     const decoded = verifyAccessToken(token);
+    const blacklisted = await redisClient.get(`blacklist:at:${decoded.jti}`);
+    if (blacklisted) {
+      authFailureCounter.inc({ reason: 'token_blacklisted' });
+      throw new AppError('Token has been revoked', 401, 'TOKEN_REVOKED');
+    } 
 
     // ─────────────────────────────────────────────
     // 3. Validate payload (defensive check)

@@ -196,7 +196,7 @@ export const riskScoreHistogram = new client.Histogram({
   name: 'iam_risk_score_distribution',
   help: 'Distribution of risk scores from the risk engine',
   buckets: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
-  labelNames: ['risk_level'],
+  
 });
 register.registerMetric(riskScoreHistogram);
 
@@ -210,7 +210,7 @@ register.registerMetric(riskEngineProcessingTime);
 export const highRiskEventsTotal = new client.Counter({
   name: 'iam_high_risk_events_total',
   help: 'Total events classified as high risk (score >= 70)',
-  labelNames: ['event_type', 'action'],
+   labelNames: ['event_type', 'risk_level', 'source'],
 });
 register.registerMetric(highRiskEventsTotal);
 

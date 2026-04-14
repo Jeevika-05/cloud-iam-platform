@@ -237,14 +237,36 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
                   }
                   
                   // Label rendering option as bonus usability
-                  const label = node.display || node.label || '';
-                  if (label && (isHighlighted || highlightNodes.size === 0)) {
-                    ctx.font = '4px Sans-Serif';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillStyle = isHighlighted ? '#000' : '#333';
-                    ctx.fillText(label, node.x, node.y + 8);
-                  }
+                  const rawLabel = node.display || node.label || '';
+if (rawLabel && (isHighlighted || highlightNodes.size === 0)) {
+  // Only show full label on highlighted nodes; truncate others to prevent clutter
+  const MAX_CHARS = isHighlighted ? 32 : 14;
+  const label = rawLabel.length > MAX_CHARS
+    ? rawLabel.slice(0, MAX_CHARS - 1) + '…'
+    : rawLabel;
+
+  const fontSize = isHighlighted ? 5 : 3.5;
+  ctx.font = `${fontSize}px Sans-Serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = isHighlighted ? '#1e293b' : '#64748b';
+
+  // Draw a semi-transparent background pill behind label for readability
+  if (isHighlighted) {
+    const textWidth = ctx.measureText(label).width;
+    const padding = 1.5;
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.fillRect(
+      node.x - textWidth / 2 - padding,
+      node.y + 6,
+      textWidth + padding * 2,
+      fontSize + padding * 2
+    );
+  }
+
+  ctx.fillStyle = isHighlighted ? '#1e293b' : '#64748b';
+  ctx.fillText(label, node.x, node.y + 8);
+}
                 }}
                 linkWidth={link => highlightLinks.has(link) ? 3 : 1}
                 linkColor={link => highlightLinks.has(link) ? '#ff0000' : '#999'}

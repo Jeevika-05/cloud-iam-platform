@@ -11,10 +11,15 @@ export const register = async (data) => {
 };
 
 let refreshPromise = null;
-
 export const refresh = async () => {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = client.post('/auth/refresh').then(response => response.data).finally(() => { refreshPromise = null; });
+  refreshPromise = client.post('/auth/refresh')
+    .then(response => response.data)
+    .catch((err) => {
+      refreshPromise = null;   // reset immediately on failure so next call retries
+      return Promise.reject(err);
+    })
+    .finally(() => { refreshPromise = null; });
   return refreshPromise;
 };
 

@@ -8,13 +8,33 @@ import { rateLimitCounter } from '../../metrics/metrics.js';
 import { app as appConfig } from '../config/index.js';
 
 function getRateLimitKey(req) {
-  return (
-    req.headers['x-attack-id']?.toString() ||
-    req.user?.id ||
-    req.body?.email ||
-    extractClientInfo(req).ip
-  );
+  const ip = extractClientInfo(req).ip;
+  const attackId = req.headers['x-attack-id']?.toString();
+  if (attackId) return attackId;
+  if (req.user?.id) return req.user.id;
+
+  // For login routes: combine IP + email so per-user limits apply
+  // even when requests come from different IPs
+  const email = req.body?.email?.toString().toLowerCase().trim();
+  if (email) return `${ip}::${email}`;  // IP+email composite
+  return ip;
 }
+export const perUserLoginLimiter = rateLimit({
+  store: makeStore(),
+  windowMs: 15 * 60 * 1000,
+  max: 10,  // 10 failed attempts per user across all IPs
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = req.body?.email?.toString().toLowerCase().trim();
+    return email ? `user_login:${email}` : `ip_login:${extractClientInfo(req).ip}`;
+  },
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many login attempts for this account.' },
+  handler: (req, res, _next, options) => {
+    rateLimitCounter.inc({ type: 'per_user_login' });
+    res.status(options.statusCode).json(options.message);
+  },
+});
 
 function makeStore() {
   return new RedisStore({ sendCommand: (...args) => redisClient.call(...args) });
