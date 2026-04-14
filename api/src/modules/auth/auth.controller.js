@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { extractClientInfo } from '../../shared/utils/clientInfo.js';
 import * as authService from './auth.service.js';
 import * as googleAuthService from './googleAuth.service.js';
@@ -7,28 +8,59 @@ import { app as appConfig } from '../../shared/config/index.js';
 import AppError from '../../shared/utils/AppError.js';
 
 // Cookie config (reuse everywhere)
-const REFRESH_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: false,        // required for HTTP
-  sameSite: "lax",      // IMPORTANT: must NOT be 'none' on HTTP
-  path: "/api/v1/auth"
+const getCookieOptions = (req) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  // Use SameSite: None explicitly if scaling out to strict multi-domain production. 
+  // Otherwise, fallback to Lax which natively protects identical-domain setups.
+  const isCrossDomain = process.env.CROSS_DOMAIN_PROD === 'true'; 
+  const sameSiteMode = isCrossDomain ? 'none' : 'lax';
+
+  return {
+    httpOnly: true,
+    secure: isProd || (isCrossDomain && sameSiteMode === 'none'), // None MUST be secure
+    sameSite: sameSiteMode,
+    path: "/"
+  };
+};
+
+// ─────────────────────────────────────────────
+// CSRF TOKEN GENERATION
+// ─────────────────────────────────────────────
+export const getCsrfToken = (req, res) => {
+  let token = req.cookies.csrf_token;
+  if (!token) {
+    token = crypto.randomBytes(32).toString('hex');
+    res.cookie('csrf_token', token, { ...getCookieOptions(req), httpOnly: true });
+  }
+  res.json(successResponse('CSRF token generated', { csrfToken: token }));
 };
 
 // ─────────────────────────────────────────────
 // GOOGLE OAUTH
 // ─────────────────────────────────────────────
 export const googleAuth = (req, res) => {
-  res.redirect(googleAuthService.getAuthUrl());
+  const state = crypto.randomBytes(32).toString('hex');
+  const cookieOpts = getCookieOptions(req);
+  res.cookie('oauth_state', state, { ...cookieOpts, maxAge: 10 * 60 * 1000 });
+  res.redirect(googleAuthService.getAuthUrl(state));
 };
 
 export const googleCallback = async (req, res, next) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
+    const stateCookie = req.cookies.oauth_state;
+
     if (!code) {
       const idTokenHeader = req.headers['x-google-id-token'];
       if (!idTokenHeader || typeof idTokenHeader !== 'string') throw new Error('Authorization code missing');
       if (idTokenHeader.length > 4096) throw new Error('ID token too large');
       req.query.idToken = idTokenHeader;
+    } else {
+      // Validate OAuth State to prevent CSRF / Session Fixation
+      if (!stateCookie || !state || stateCookie !== state) {
+        throw new AppError('Invalid OAuth state parameter', 403, 'OAUTH_CSRF_FAILED');
+      }
+      res.clearCookie('oauth_state', getCookieOptions(req));
     }
 
     const idToken = req.query.idToken || (await googleAuthService.exchangeCodeForIdToken(code));
@@ -49,7 +81,7 @@ export const googleCallback = async (req, res, next) => {
     }
 
     res.cookie('refreshToken', result.refreshToken, {
-      ...REFRESH_COOKIE_OPTIONS,
+      ...getCookieOptions(req),
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
@@ -109,7 +141,7 @@ export const login = async (req, res, next) => {
 
     // Set refresh token in cookie
     res.cookie('refreshToken', result.refreshToken, {
-      ...REFRESH_COOKIE_OPTIONS,
+      ...getCookieOptions(req),
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
@@ -154,7 +186,7 @@ export const validateMfaLogin = async (req, res, next) => {
 
     // Set refresh token in cookie
     res.cookie('refreshToken', result.refreshToken, {
-      ...REFRESH_COOKIE_OPTIONS,
+      ...getCookieOptions(req),
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
@@ -187,7 +219,7 @@ export const refresh = async (req, res, next) => {
 
     // Rotate cookie (replace old token)
     res.cookie('refreshToken', tokens.refreshToken, {
-      ...REFRESH_COOKIE_OPTIONS,
+      ...getCookieOptions(req),
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
@@ -213,7 +245,7 @@ export const logout = async (req, res, next) => {
     }
 
     // Clear cookie
-    res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
+    res.clearCookie('refreshToken', getCookieOptions(req));
 
     return successResponse(res, {}, 'Logged out successfully');
   } catch (err) {
@@ -302,7 +334,7 @@ export const revokeAllSessions = async (req, res, next) => {
     await authService.revokeAllSessions(req.user.id, { correlationId: req.correlationId });
 
     // Clear cookie for security
-    res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
+    res.clearCookie('refreshToken', getCookieOptions(req));
 
     return successResponse(res, {}, 'All sessions revoked');
   } catch (err) {

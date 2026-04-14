@@ -9,11 +9,12 @@ const client = new OAuth2Client(
   googleConfig.redirectUri
 );
 
-export const getAuthUrl = () => {
+export const getAuthUrl = (state) => {
   return client.generateAuthUrl({
     access_type: 'offline',
     scope: ['openid', 'email', 'profile'],
     prompt: 'consent',
+    state,
   });
 };
 

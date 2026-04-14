@@ -6,12 +6,16 @@ import { authorizePolicy } from '../../shared/middleware/authorizePolicy.js';
 import * as authService from './auth.service.js';
 import { authLimiter, mfaLimiter, apiLimiter } from '../../shared/middleware/rateLimiter.js';
 import { validate, registerRules, loginRules, sessionIdParamRule } from '../../shared/middleware/validate.js';
+import { requireCsrf } from '../../shared/middleware/requireCsrf.js';
 
 const router = Router();
 
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
 // Public routes — no authentication required
 // ─────────────────────────────────────────────
+router.get('/csrf', apiLimiter, authController.getCsrfToken);
+
 router.post('/register', authLimiter, registerRules, validate, authController.register);
 
 router.get('/google', authController.googleAuth);
@@ -23,7 +27,7 @@ router.post('/login', authLimiter, loginRules, validate, authController.login);
 router.post('/mfa/validate-login', mfaLimiter, authController.validateMfaLogin);
 
 // SEC-12: Rate-limit refresh endpoint (prevents token rotation abuse)
-router.post('/refresh', authLimiter, authController.refresh);
+router.post('/refresh', authLimiter, requireCsrf, authController.refresh);
 
 // ─────────────────────────────────────────────
 // Protected routes

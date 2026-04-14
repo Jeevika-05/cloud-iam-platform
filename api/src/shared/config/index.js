@@ -118,8 +118,8 @@ export const app = Object.freeze({
   defenseWorkerMetricsPort: parseInt(process.env.DEFENSE_WORKER_METRICS_PORT, 10) || 9092,
   logLevel:   process.env.LOG_LEVEL || 'info',
   corsOrigin: process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',')
-    : ['http://localhost:5173', 'http://localhost:3000'],
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+    : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://localhost'],
   isProduction: (process.env.NODE_ENV || 'development') === 'production',
   isDevelopment: (process.env.NODE_ENV || 'development') === 'development',
 });
