@@ -54,8 +54,9 @@ const processQueue = (error, token = null) => {
 export const fetchCsrfToken = async () => {
   try {
     const res = await client.get('/auth/csrf');
-    const token = res.data.csrfToken;
-    client.defaults.headers.common['X-CSRF-Token'] = token;
+    const token = res.data?.csrfToken || res.data?.data?.csrfToken;
+    if (!token) throw new Error('CSRF token missing from response');
+    client.defaults.headers.common['X-CSRF-Token'] = token; 
     return token;
   } catch (error) {
     console.error('Failed to fetch CSRF token:', error);
@@ -120,14 +121,16 @@ client.interceptors.response.use(
     const originalRequest = error.config;
 
     // Route permissions (403 Forbidden)
-    if (error.response?.status === 403 || error.response?.data?.code === 'PERMISSION_DENIED') {
-      window.dispatchEvent(new CustomEvent('auth:forbidden'));
-      return Promise.reject({
-        message: 'Access denied',
-        code: 'PERMISSION_DENIED',
-        status: 403
-      });
-    } else if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest._retry) {
+    // AFTER
+if (error.response?.status === 403 && error.response?.data?.code === 'PERMISSION_DENIED') {
+  window.dispatchEvent(new CustomEvent('auth:forbidden'));
+  return Promise.reject({ message: 'Access denied', code: 'PERMISSION_DENIED', status: 403 });
+}
+
+// CSRF failure on refresh during bootstrap — treat as unauthenticated, not forbidden
+if (error.response?.status === 403 && ['CSRF_FAILED', 'AUTH_REQUIRED'].includes(error.response?.data?.code)) {
+  return Promise.reject({ message: 'Not authenticated', code: 'UNAUTHENTICATED', status: 401 });
+} else if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !originalRequest._retry) {
       if (originalRequest.url.includes('/auth/refresh')) {
         return Promise.reject({
           message: 'Session expired',

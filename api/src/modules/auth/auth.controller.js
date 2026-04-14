@@ -30,7 +30,13 @@ export const getCsrfToken = (req, res) => {
   let token = req.cookies.csrf_token;
   if (!token) {
     token = crypto.randomBytes(32).toString('hex');
-    res.cookie('csrf_token', token, { ...getCookieOptions(req), httpOnly: true });
+   res.cookie('csrf_token', token, {
+  ...getCookieOptions(req),
+  httpOnly: false,   // JS must be able to read this — that is the point of double-submit
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  path: '/'
+});
   }
   res.json(successResponse('CSRF token generated', { csrfToken: token }));
 };

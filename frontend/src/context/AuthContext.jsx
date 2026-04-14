@@ -3,6 +3,7 @@ import * as authApi from '../api/auth.api';
 import * as userApi from '../api/user.api';
 import { setAccessToken } from '../api/client';
 import { AuthContext } from './auth-context';
+import { fetchCsrfToken } from '../api/client';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -33,39 +34,28 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let isMounted = true;
 
-    const fetchWithRetry = async () => {
-      try {
-        return await authApi.refresh();
-      } catch {
-        // retry once
-        return await authApi.refresh();
-      }
-    };
+    
 
     const bootstrap = async () => {
-      try {
-        const res = await fetchWithRetry();
-        if (!isMounted) return;
-
-        console.log("Auth initialized:", res);
-
-        const { accessToken } = res;
-        setAccessToken(accessToken);
-
-        const profile = await userApi.getProfile();
-        if (!isMounted) return;
-
-        setUser(profile);
-        setIsAuthenticated(true);
-      } catch {
-        if (!isMounted) return;
-        setAccessToken(null);
-        setUser(null);
-        setIsAuthenticated(false);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
+  try {
+    await fetchCsrfToken();            // ensure CSRF is ready for login/logout/etc.
+    const res = await authApi.refresh();
+    if (!isMounted) return;
+    const { accessToken } = res;
+    setAccessToken(accessToken);
+    const profile = await userApi.getProfile();
+    if (!isMounted) return;
+    setUser(profile);
+    setIsAuthenticated(true);
+  } catch {
+    if (!isMounted) return;
+    setAccessToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
+  } finally {
+    if (isMounted) setLoading(false);
+  }
+};
 
     bootstrap();
 

@@ -156,7 +156,7 @@ const Login = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
                     autoComplete="current-password"
-                    className="block w-full rounded-[6px] border-0 py-2.5 px-3.5 text-[14px] text-slate-900 bg-slate-50/50 shadow-sm ring-1 ring-inset ring-slate-200/80 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-indigo-600 hover:ring-slate-300 transition-all duration-200 outline-none"
+                    className="block w-full rounded-[6px] border-0 py-2.5 px-3.5 text-[14px] text-black bg-slate-50/50 shadow-sm ring-1 ring-inset ring-slate-200/80 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-indigo-600 hover:ring-slate-300 transition-all duration-200 outline-none"
                   />
                 </div>
               </div>

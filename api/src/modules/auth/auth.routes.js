@@ -27,7 +27,7 @@ router.post('/login', authLimiter, loginRules, validate, authController.login);
 router.post('/mfa/validate-login', mfaLimiter, authController.validateMfaLogin);
 
 // SEC-12: Rate-limit refresh endpoint (prevents token rotation abuse)
-router.post('/refresh', authLimiter, requireCsrf, authController.refresh);
+router.post('/refresh', authLimiter,  authController.refresh);
 
 // ─────────────────────────────────────────────
 // Protected routes
@@ -39,6 +39,7 @@ router.post(
   '/logout',
   authenticate,
   requirePermission('sessions:revoke_own'),
+  requireCsrf,
   authController.logout
 );
 
@@ -58,6 +59,7 @@ router.patch(
   authenticate,
   apiLimiter,
   requirePermission('profile:update'),
+  requireCsrf,
   authorizePolicy({ action: 'update', resource: 'user', getResource: req => ({ id: req.user.id }) }),
   authController.updateProfile
 );
