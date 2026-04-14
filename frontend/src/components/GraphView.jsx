@@ -23,6 +23,38 @@ const Legend = ({ darkMode }) => (
   </div>
 );
 
+const Spinner = () => (
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', padding: '40px' }}>
+    <div style={{ width: '36px', height: '36px', border: '3px solid #f3f3f3', borderTop: '3px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+    <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+    <p style={{ color: '#6b7280', fontWeight: 500, margin: 0 }}>Loading graph...</p>
+  </div>
+);
+
+const ErrorBox = ({ message, onRetry }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', textAlign: 'center', padding: '40px' }}>
+    <p style={{ color: '#ef4444', fontWeight: 600, margin: 0 }}>{message}</p>
+    <button
+      onClick={onRetry}
+      style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.35)', background: 'rgba(59, 130, 246, 0.08)', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}
+    >
+      Retry
+    </button>
+  </div>
+);
+
+const normalizeGraphResponse = (payload) => {
+  const data = payload?.data ?? payload ?? {};
+  const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+  const edges = Array.isArray(data?.edges)
+    ? data.edges
+    : Array.isArray(data?.links)
+      ? data.links
+      : [];
+
+  return { nodes, edges };
+};
+
 const GraphView = ({ darkMode = false, correlationId = '' }) => {
   const fgRef = useRef();
   // Existing state
@@ -34,6 +66,8 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
   
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Selection state
   const [selectedNode, setSelectedNode] = useState(null);
@@ -43,33 +77,49 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
   const [highlightLinks, setHighlightLinks] = useState(new Set());
 
   useEffect(() => {
+    let active = true;
+
     const fetchGraph = async () => {
       setLoading(true);
+      setError('');
       try {
-        let url = `/graph?type=${type}&limit=${limit}&severity=${severity}`;
-        if (correlationId) {
-            url += `&correlation_id=${correlationId}`;
+        const params = new URLSearchParams();
+        params.set('type', type);
+        params.set('limit', String(limit));
+        if (severity) {
+          params.set('severity', severity);
         }
-        const response = await client.get(url);
-        if (response.data) {
-          setGraphData({
-            nodes: response.data.nodes || [],
-            edges: response.data.edges || []
-          });
-          // Clear selection when data changes
+        if (correlationId) {
+          params.set('correlation_id', correlationId);
+        }
+
+        const response = await client.get(`/graph?${params.toString()}`);
+        if (active) {
+          const nextGraph = normalizeGraphResponse(response.data);
+          setGraphData(nextGraph);
           setSelectedNode(null);
           setHighlightNodes(new Set());
           setHighlightLinks(new Set());
         }
       } catch (err) {
-        console.error('Failed to fetch graph data:', err);
+        if (active) {
+          console.error('Failed to fetch graph data:', err);
+          setGraphData({ nodes: [], edges: [] });
+          setError('Unable to load the attack graph right now. Please retry in a moment.');
+        }
       } finally {
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     };
 
     fetchGraph();
-  }, [type, limit, severity, correlationId]); // Update graph automatically on change
+
+    return () => {
+      active = false;
+    };
+  }, [type, limit, severity, correlationId, reloadKey]);
 
   const handleNodeClick = (node) => {
     if (fgRef.current) {
@@ -83,10 +133,13 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
     newHighlightNodes.add(node);
 
     graphData.edges.forEach(link => {
-      if (link.source.id === node.id || link.target.id === node.id) {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+      if (sourceId === node.id || targetId === node.id) {
         newHighlightLinks.add(link);
-        newHighlightNodes.add(link.source);
-        newHighlightNodes.add(link.target);
+        if (typeof link.source === 'object') newHighlightNodes.add(link.source);
+        if (typeof link.target === 'object') newHighlightNodes.add(link.target);
       }
     });
 
@@ -95,12 +148,19 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
     setSelectedNode(node);
   };
 
+  const hasGraphData = graphData.nodes.length > 0 || graphData.edges.length > 0;
+
+  const fetchGraph = () => setReloadKey((current) => current + 1);
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox message={error} onRetry={fetchGraph} />;
+
   return (
     <div className="graph-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '20px', color: darkMode ? '#f8fafc' : 'inherit' }}>
-      <div className="graph-controls" style={{ display: 'flex', gap: '15px', padding: '20px', backgroundColor: darkMode ? '#0f172a' : '#f8f9fa', borderRadius: '8px', border: `1px solid ${darkMode ? '#334155' : 'transparent'}` }}>
+      <div className="graph-controls" style={{ display: 'flex', gap: '15px', padding: '20px', backgroundColor: darkMode ? '#0f172a' : '#f8f9fa', borderRadius: '8px', border: `1px solid ${darkMode ? '#334155' : 'transparent'}`, flexWrap: 'wrap' }}>
         <div>
           <label style={{ marginRight: '8px', fontWeight: 'bold' }}>View Type: </label>
-          <select value={type} onChange={(e) => setType(e.target.value)} style={{ padding: '4px 8px' }}>
+          <select value={type} onChange={(e) => setType(e.target.value)} style={{ padding: '4px 8px' }} disabled={loading}>
             <option value="attack-defense">Attack & Defense</option>
             <option value="attack-chain">Attack Chain</option>
             <option value="user-attack">User Attack Paths</option>
@@ -110,7 +170,7 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
         
         <div>
           <label style={{ marginRight: '8px', fontWeight: 'bold' }}>Severity: </label>
-          <select value={severity} onChange={(e) => setSeverity(e.target.value)} style={{ padding: '4px 8px' }}>
+          <select value={severity} onChange={(e) => setSeverity(e.target.value)} style={{ padding: '4px 8px' }} disabled={loading}>
             <option value="">All</option>
             <option value="CRITICAL">Critical</option>
             <option value="HIGH">High</option>
@@ -130,14 +190,15 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
             }} 
             max={100}
             min={1}
+            disabled={loading}
             style={{ width: '60px', padding: '4px 8px' }}
           />
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '20px', flex: 1 }}>
+      <div style={{ display: 'flex', gap: '20px', flex: 1, flexWrap: 'wrap' }}>
         <div className="graph-visualization" style={{ 
-          flex: 2, 
+          flex: '2 1 640px', 
           border: `1px solid ${darkMode ? '#334155' : '#e0e0e0'}`, 
           borderRadius: '8px',
           minHeight: '500px',
@@ -149,30 +210,9 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
           position: 'relative'
         }}>
           <Legend darkMode={darkMode} />
-          {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-              <div style={{
-                width: '36px',
-                height: '36px',
-                border: '3px solid #f3f3f3',
-                borderTop: '3px solid #3b82f6',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }} />
-              <style>
-                {`
-                  @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                  }
-                `}
-              </style>
-              <p style={{ color: '#6b7280', fontWeight: 500, margin: 0 }}>Loading graph...</p>
-            </div>
-          ) : (
-            graphData.nodes.length > 0 ? (
-              <ForceGraph2D
-                ref={fgRef}
+          {hasGraphData ? (
+            <ForceGraph2D
+              ref={fgRef}
                 graphData={{ nodes: graphData.nodes, links: graphData.edges }}
                 width={800}
                 height={500}
@@ -210,14 +250,19 @@ const GraphView = ({ darkMode = false, correlationId = '' }) => {
                 linkColor={link => highlightLinks.has(link) ? '#ff0000' : '#999'}
               />
             ) : (
-              <p style={{ color: '#888' }}>No nodes available to display.</p>
+              <div className="empty-state" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center', padding: '24px', color: '#6b7280' }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>No events found for this attack trace.</p>
+                <p style={{ margin: 0, fontSize: '13px' }}>
+                  Try clearing the correlation filter or widening the graph filters.
+                </p>
+              </div>
             )
-          )}
+          }
         </div>
 
         {/* Node Details Panel */}
         <div className="node-details" style={{ 
-          flex: 1, 
+          flex: '1 1 320px', 
           border: `1px solid ${darkMode ? '#334155' : '#e0e0e0'}`, 
           borderRadius: '8px', 
           padding: '20px',

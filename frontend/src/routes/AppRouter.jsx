@@ -10,7 +10,10 @@ import Profile from '../pages/Profile';
 import Sessions from '../pages/Sessions';
 import UsersPage from '../pages/Users';
 import AuditPage from '../pages/Audit';
+import SecuritySimulation from '../pages/SecuritySimulation';
+import GraphPage from '../pages/GraphPage';
 import AuthCallback from '../pages/AuthCallback';
+import AdminUsers from '../pages/AdminUsers';
 
 // Guards
 import ProtectedRoute from '../components/ProtectedRoute';
@@ -81,6 +84,17 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/admin-users"
+          element={
+            <ProtectedRoute>
+              <RoleGuard permission="users:update_role">
+                <AdminUsers />
+              </RoleGuard>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/audit"
           element={
             <ProtectedRoute>
@@ -91,7 +105,28 @@ const AppRouter = () => {
           }
         />
 
+        <Route
+          path="/simulation"
+          element={
+            <ProtectedRoute>
+              <RoleGuard permission="security:simulate">
+                <SecuritySimulation />
+              </RoleGuard>
+            </ProtectedRoute>
+          }
+        />
 
+        <Route
+          path="/graph"
+          element={
+            <ProtectedRoute>
+              {/* Note: Analysts + Admins can view metrics/graph data */}
+              <RoleGuard permission="metrics:view">
+                <GraphPage />
+              </RoleGuard>
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/forbidden"

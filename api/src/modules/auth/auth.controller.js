@@ -9,9 +9,9 @@ import AppError from '../../shared/utils/AppError.js';
 // Cookie config (reuse everywhere)
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: appConfig.isProduction,
-  sameSite: 'lax',
-  path: '/api/v1/auth', // restrict cookie scope
+  secure: false,        // required for HTTP
+  sameSite: "lax",      // IMPORTANT: must NOT be 'none' on HTTP
+  path: "/api/v1/auth"
 };
 
 // ─────────────────────────────────────────────
@@ -32,12 +32,13 @@ export const googleCallback = async (req, res, next) => {
     }
 
     const idToken = req.query.idToken || (await googleAuthService.exchangeCodeForIdToken(code));
-    const { googleId, email, name } = await googleAuthService.verifyGoogleIdToken(idToken);
+    const { googleId, email, name, emailVerified } = await googleAuthService.verifyGoogleIdToken(idToken);
 
     const result = await authService.handleGoogleAuth({
       googleId,
       email,
       name,
+      emailVerified,
       ipAddress: extractClientInfo(req).ip,
       userAgent: extractClientInfo(req).userAgent,
       correlationId: req.correlationId
@@ -48,10 +49,8 @@ export const googleCallback = async (req, res, next) => {
     }
 
     res.cookie('refreshToken', result.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/api/v1/auth'
+      ...REFRESH_COOKIE_OPTIONS,
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';

@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+axios.defaults.withCredentials = true;
+
 let accessToken = null;
 
 let isRefreshing = false;
@@ -18,10 +20,18 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
+const envUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+// 🔐 FIX: Provide relative path if env URL is a Docker-internal hostname, avoiding CORS/DNS errors and allowing Nginx to proxy
+const BASE_URL = typeof window !== 'undefined' && envUrl.includes('backend:3000') 
+  ? "" 
+  : envUrl;
+
 const client = axios.create({
-  baseURL: '/api/v1',
+  baseURL: BASE_URL ? `${BASE_URL}/api/v1` : '/api/v1',
   withCredentials: true,
 });
+
+axios.defaults.withCredentials = true;
 
 // Request Interceptor: Attach access token if available
 client.interceptors.request.use(
@@ -41,10 +51,14 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => {
     // Auto-unwrap the { success, data, message } envelope
-    if (response.data && response.data.success !== undefined) {
-      // NOTE: We replace response.data with response.data.data
-      response.data = response.data.data;
+    let rawData = response.data?.data || response.data;
+
+    // Normalize response shape: unwrap `.user` if present (but keep accessToken intact)
+    if (rawData && rawData.user && !rawData.accessToken) {
+      rawData = rawData.user;
     }
+
+    response.data = rawData;
     return response;
   },
   async (error) => {

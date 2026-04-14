@@ -12,7 +12,7 @@ const Sessions = () => {
       const res = await getSessions();
       setSessions(Array.isArray(res) ? res : []);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load sessions.');
+      setError(err.message || 'Failed to load sessions.');
     } finally {
       setLoading(false);
     }
@@ -29,7 +29,7 @@ const Sessions = () => {
       setMessage('Session revoked.');
       fetchSessions();
     } catch (err) {
-      setMessage(err.response?.data?.message || 'Failed to revoke session.');
+      setMessage(err.message || 'Failed to revoke session.');
     }
   };
 
@@ -40,7 +40,7 @@ const Sessions = () => {
       setMessage('All sessions revoked.');
       fetchSessions();
     } catch (err) {
-      setMessage(err.response?.data?.message || 'Failed to revoke sessions.');
+      setMessage(err.message || 'Failed to revoke sessions.');
     }
   };
 

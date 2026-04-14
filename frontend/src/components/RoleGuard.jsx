@@ -1,17 +1,18 @@
 import React from 'react';
+import { Navigate } from 'react-router-dom';
 import usePermission from '../hooks/usePermission';
 
 /**
  * RoleGuard
  *
  * Renders children only when the user holds the required permission.
- * Renders `fallback` (or null) otherwise — never redirects.
+ * Redirects to /forbidden by default when denied — override with `fallback`.
  * Compose inside ProtectedRoute so auth is already guaranteed.
  *
  * Props:
  *   permission  {string}     - e.g. 'users:list', 'audit:view'
  *   children    {ReactNode}  - content to show if permitted
- *   fallback    {ReactNode}  - optional UI to show when denied (default: null)
+ *   fallback    {ReactNode}  - optional UI to show when denied (default: redirect to /forbidden)
  *
  * Usage:
  *   <ProtectedRoute>
@@ -20,7 +21,7 @@ import usePermission from '../hooks/usePermission';
  *     </RoleGuard>
  *   </ProtectedRoute>
  */
-const RoleGuard = ({ permission, children, fallback = null }) => {
+const RoleGuard = ({ permission, children, fallback = <Navigate to="/forbidden" replace /> }) => {
   const hasPermission = usePermission();
 
   if (!hasPermission(permission)) {

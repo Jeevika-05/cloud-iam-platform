@@ -166,7 +166,251 @@ const ATTACK_REGISTRY = {
       }
       return { correlationId, steps: 8, attackerIp };
     }
-  }
+  },
+
+  // ─── NEW ATTACK TYPES (5–12) ──────────────────────────────────────────────
+
+  TOKEN_FORGERY: {
+    label: 'JWT Token Forgery',
+    group: 'Token',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+
+      // Step 1: Forged token detected
+      await logSecurityEvent({
+        userId, action: 'TOKEN_INVALID_SIGNATURE', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'CRITICAL', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 1,
+                    target_endpoint: '/api/v1/auth/profile', agent_type: 'SIMULATED', scenario: 'TOKEN_FORGERY' },
+      });
+      await sleep(120);
+
+      // Step 2: Algorithm confusion attempt
+      await logSecurityEvent({
+        userId, action: 'TOKEN_ALGORITHM_MISMATCH', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'CRITICAL', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 2,
+                    target_endpoint: '/api/v1/auth/refresh', agent_type: 'SIMULATED', scenario: 'TOKEN_FORGERY' },
+      });
+      await sleep(120);
+
+      // Step 3: Expired token replay
+      await logSecurityEvent({
+        userId, action: 'TOKEN_EXPIRED_REUSE', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 3,
+                    target_endpoint: '/api/v1/users', agent_type: 'SIMULATED', scenario: 'TOKEN_FORGERY' },
+      });
+
+      return { correlationId, steps: 3, attackerIp };
+    },
+  },
+
+  PASSWORD_SPRAY: {
+    label: 'Password Spray',
+    group: 'Authentication',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+
+      // Spray common passwords across multiple "user" targets
+      const targets = ['admin@test.com', 'user@test.com', 'analyst@test.com', 'dev@test.com'];
+      for (let i = 0; i < targets.length; i++) {
+        await logSecurityEvent({
+          userId, action: 'LOGIN_FAILED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, step: i + 1,
+                      target_endpoint: '/api/v1/auth/login', agent_type: 'SIMULATED',
+                      scenario: 'PASSWORD_SPRAY', target_email: targets[i] },
+        });
+        await sleep(150);
+      }
+
+      return { correlationId, steps: targets.length, attackerIp };
+    },
+  },
+
+  RATE_LIMIT_BYPASS: {
+    label: 'Rate Limit Bypass',
+    group: 'API',
+    async execute(userId, correlationId) {
+      // Simulate rapid requests from rotating IPs to bypass rate limiting
+      for (let i = 0; i < 5; i++) {
+        const rotatedIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+        await logSecurityEvent({
+          userId, action: 'RATE_LIMIT_EXCEEDED', status: 'FAILURE',
+          ip: rotatedIp, correlationId, severity: 'MEDIUM', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, step: i + 1,
+                      target_endpoint: '/api/v1/auth/login', agent_type: 'SIMULATED',
+                      scenario: 'RATE_LIMIT_BYPASS', technique: 'ip_rotation' },
+        });
+        await sleep(80);
+      }
+
+      return { correlationId, steps: 5, attackerIp: 'multiple (rotating)' };
+    },
+  },
+
+  PRIVILEGE_ESCALATION: {
+    label: 'Privilege Escalation',
+    group: 'Authorization',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+
+      // Step 1: Attempt to access admin endpoint as USER
+      await logSecurityEvent({
+        userId, action: 'RBAC_ACCESS_DENIED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 1,
+                    target_endpoint: '/api/v1/users', agent_type: 'SIMULATED', scenario: 'PRIVILEGE_ESCALATION' },
+      });
+      await sleep(100);
+
+      // Step 2: Attempt to modify own role
+      await logSecurityEvent({
+        userId, action: 'ROLE_MODIFICATION_DENIED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'CRITICAL', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 2,
+                    target_endpoint: '/api/v1/users/self/role', agent_type: 'SIMULATED',
+                    scenario: 'PRIVILEGE_ESCALATION', attempted_role: 'ADMIN' },
+      });
+      await sleep(100);
+
+      // Step 3: Attempt to access security simulation
+      await logSecurityEvent({
+        userId, action: 'PERMISSION_DENIED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 3,
+                    target_endpoint: '/api/v1/security/simulate', agent_type: 'SIMULATED',
+                    scenario: 'PRIVILEGE_ESCALATION' },
+      });
+
+      return { correlationId, steps: 3, attackerIp };
+    },
+  },
+
+  INJECTION_ATTACK: {
+    label: 'Injection Attack',
+    group: 'API',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+      const payloads = [
+        { target: '/api/v1/auth/login', type: 'SQL_INJECTION' },
+        { target: '/api/v1/users?search=<script>', type: 'XSS' },
+        { target: '/api/v1/auth/login', type: 'NOSQL_INJECTION' },
+        { target: '/api/v1/audit/events?since=;DROP TABLE', type: 'SQL_INJECTION' },
+      ];
+
+      for (let i = 0; i < payloads.length; i++) {
+        await logSecurityEvent({
+          userId, action: 'INJECTION_DETECTED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: 'CRITICAL', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, step: i + 1,
+                      target_endpoint: payloads[i].target, agent_type: 'SIMULATED',
+                      scenario: 'INJECTION_ATTACK', injection_type: payloads[i].type },
+        });
+        await sleep(100);
+      }
+
+      return { correlationId, steps: payloads.length, attackerIp };
+    },
+  },
+
+  SESSION_FIXATION: {
+    label: 'Session Fixation',
+    group: 'Token',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+
+      // Step 1: Pre-authenticated session injection
+      await logSecurityEvent({
+        userId, action: 'SESSION_FIXATION_DETECTED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 1,
+                    target_endpoint: '/api/v1/auth/login', agent_type: 'SIMULATED',
+                    scenario: 'SESSION_FIXATION' },
+      });
+      await sleep(120);
+
+      // Step 2: Cookie injection attempt
+      await logSecurityEvent({
+        userId, action: 'COOKIE_TAMPERING_DETECTED', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 2,
+                    target_endpoint: '/api/v1/auth/refresh', agent_type: 'SIMULATED',
+                    scenario: 'SESSION_FIXATION' },
+      });
+      await sleep(120);
+
+      // Step 3: Session ID reuse after rotation
+      await logSecurityEvent({
+        userId, action: 'SESSION_REUSE_AFTER_ROTATION', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'CRITICAL', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 3,
+                    target_endpoint: '/api/v1/auth/refresh', agent_type: 'SIMULATED',
+                    scenario: 'SESSION_FIXATION' },
+      });
+
+      return { correlationId, steps: 3, attackerIp };
+    },
+  },
+
+  RBAC_BYPASS: {
+    label: 'RBAC Bypass',
+    group: 'Authorization',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+      const targets = [
+        { endpoint: '/api/v1/rbac/roles', perm: 'users:list' },
+        { endpoint: '/api/v1/security/simulate', perm: 'security:simulate' },
+        { endpoint: '/api/v1/metrics/summary', perm: 'metrics:view' },
+        { endpoint: '/api/v1/users', perm: 'users:delete' },
+      ];
+
+      for (let i = 0; i < targets.length; i++) {
+        await logSecurityEvent({
+          userId, action: 'RBAC_ACCESS_DENIED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: i >= 2 ? 'CRITICAL' : 'HIGH', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, step: i + 1,
+                      target_endpoint: targets[i].endpoint, agent_type: 'SIMULATED',
+                      scenario: 'RBAC_BYPASS', required_permission: targets[i].perm },
+        });
+        await sleep(100);
+      }
+
+      return { correlationId, steps: targets.length, attackerIp };
+    },
+  },
+
+  MFA_BYPASS: {
+    label: 'MFA Bypass Attempt',
+    group: 'Authentication',
+    async execute(userId, correlationId) {
+      const attackerIp = `10.${rand(255)}.${rand(255)}.${rand(255)}`;
+
+      // Step 1: Brute force TOTP codes
+      for (let i = 0; i < 3; i++) {
+        await logSecurityEvent({
+          userId, action: 'MFA_FAILED', status: 'FAILURE',
+          ip: attackerIp, correlationId, severity: 'HIGH', event_type: 'ATTACK',
+          metadata: { event_type: 'ATTACK', simulated: true, step: i + 1,
+                      target_endpoint: '/api/v1/auth/mfa/validate-login', agent_type: 'SIMULATED',
+                      scenario: 'MFA_BYPASS', technique: 'totp_bruteforce' },
+        });
+        await sleep(80);
+      }
+
+      // Step 4: Attempt to use tempToken directly without MFA
+      await logSecurityEvent({
+        userId, action: 'MFA_SKIP_ATTEMPT', status: 'FAILURE',
+        ip: attackerIp, correlationId, severity: 'CRITICAL', event_type: 'ATTACK',
+        metadata: { event_type: 'ATTACK', simulated: true, step: 4,
+                    target_endpoint: '/api/v1/auth/profile', agent_type: 'SIMULATED',
+                    scenario: 'MFA_BYPASS', technique: 'token_without_mfa' },
+      });
+
+      return { correlationId, steps: 4, attackerIp };
+    },
+  },
 };
 
 

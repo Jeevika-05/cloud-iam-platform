@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import client from '../api/client';
 
+const GRAFANA_BASE_URL = 'http://localhost:3001';
+
+const buildGrafanaUrl = (dashboard) =>
+  `${GRAFANA_BASE_URL}/d/${dashboard}?orgId=1&theme=light&kiosk=tv`;
+
 /**
  * Reusable Grafana dashboard embed component.
  *
@@ -70,15 +75,20 @@ const GrafanaEmbed = ({ dashboard, title, height = '400px', className = '' }) =>
   }
 
   /* ── Error state ────────────────────────────────── */
-  if (error) {
+  if (error && !url) {
+    // If backend failed, we can still TRY to fall back to direct iframe injection
+    const fallbackUrl = buildGrafanaUrl(dashboard);
     return (
-      <div className={className}>
-        <div className="error-banner" role="alert">⚠️ {error}</div>
-        <div className="grafana-placeholder">
-          <span className="icon">📉</span>
-          Grafana dashboard is not available right now.
-        </div>
-      </div>
+      <iframe
+        className={`grafana-iframe ${className}`}
+        src={fallbackUrl}
+        width="100%"
+        height={height}
+        title={title || `Grafana — ${dashboard}`}
+        sandbox="allow-scripts allow-same-origin"
+        loading="lazy"
+        style={{ border: 'none', borderRadius: '10px', background: 'var(--bg-card)' }}
+      />
     );
   }
 
@@ -86,11 +96,13 @@ const GrafanaEmbed = ({ dashboard, title, height = '400px', className = '' }) =>
   return (
     <iframe
       className={`grafana-iframe ${className}`}
-      src={url}
+      src={url || buildGrafanaUrl(dashboard)}
       width="100%"
       height={height}
       title={title || `Grafana — ${dashboard}`}
       sandbox="allow-scripts allow-same-origin"
+      loading="lazy"
+      style={{ border: 'none', borderRadius: '10px', background: 'var(--bg-card)' }}
     />
   );
 };

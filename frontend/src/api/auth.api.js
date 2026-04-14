@@ -10,9 +10,12 @@ export const register = async (data) => {
   return response.data;
 };
 
+let refreshPromise = null;
+
 export const refresh = async () => {
-  const response = await client.post('/auth/refresh');
-  return response.data;
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = client.post('/auth/refresh').then(response => response.data).finally(() => { refreshPromise = null; });
+  return refreshPromise;
 };
 
 export const validateMfaLogin = async (data) => {

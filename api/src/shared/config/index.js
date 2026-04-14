@@ -119,7 +119,7 @@ export const app = Object.freeze({
   logLevel:   process.env.LOG_LEVEL || 'info',
   corsOrigin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
-    : ['http://localhost:3000'],
+    : ['http://localhost:5173', 'http://localhost:3000'],
   isProduction: (process.env.NODE_ENV || 'development') === 'production',
   isDevelopment: (process.env.NODE_ENV || 'development') === 'development',
 });

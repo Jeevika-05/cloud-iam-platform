@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
       setAccessToken(accessToken);
 
       const profile = await userApi.getProfile();
-      setUser(profile.user || profile);
+      setUser(profile);
       setIsAuthenticated(true);
     } catch {
       // Refresh cookie absent or expired — stay unauthenticated silently
@@ -33,10 +33,21 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let isMounted = true;
 
+    const fetchWithRetry = async () => {
+      try {
+        return await authApi.refresh();
+      } catch {
+        // retry once
+        return await authApi.refresh();
+      }
+    };
+
     const bootstrap = async () => {
       try {
-        const res = await authApi.refresh();
+        const res = await fetchWithRetry();
         if (!isMounted) return;
+
+        console.log("Auth initialized:", res);
 
         const { accessToken } = res;
         setAccessToken(accessToken);
@@ -44,11 +55,10 @@ export const AuthProvider = ({ children }) => {
         const profile = await userApi.getProfile();
         if (!isMounted) return;
 
-        setUser(profile.user || profile);
+        setUser(profile);
         setIsAuthenticated(true);
       } catch {
         if (!isMounted) return;
-        // Refresh cookie absent or expired — stay unauthenticated silently
         setAccessToken(null);
         setUser(null);
         setIsAuthenticated(false);

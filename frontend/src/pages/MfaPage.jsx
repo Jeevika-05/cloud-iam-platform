@@ -25,7 +25,7 @@ const MfaPage = () => {
 
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid code. Please try again.');
+      setError(err.message || 'Invalid code. Please try again.');
     } finally {
       setSubmitting(false);
     }

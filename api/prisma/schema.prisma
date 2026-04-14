@@ -14,6 +14,8 @@ model User {
   password String? // Optional for OAuth users
   name     String
   role     Role    @default(USER)
+  roleSource  String?
+  roleStatus  String   @default("ACTIVE") // ACTIVE | PENDING
 
   googleId            String?    @unique
   provider            String?    @default("local")
@@ -90,4 +92,5 @@ enum Role {
   USER
   ADMIN
   SECURITY_ANALYST
+  PENDING_ADMIN
 }

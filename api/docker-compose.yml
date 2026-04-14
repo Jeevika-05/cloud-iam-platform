@@ -167,6 +167,15 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       NEO4J_URL: bolt://neo4j:7687
       NEO4J_USER: neo4j
+      # ── OAuth Role Assignment ──────────────────────────────
+      # Comma-separated list of emails that receive ADMIN role on first Google sign-in
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@example.com}
+      # Optional: entire domain where all accounts become ADMIN (leave blank to disable)
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-}
+      # Must be 'true' to allow ANY admin to be granted via OAuth (safe default: off)
+      OAUTH_ADMIN_ENABLED: ${OAUTH_ADMIN_ENABLED:-false}
+      # Set to 'true' to require email_verified=true for domain-based admin grants
+      ADMIN_DOMAIN_STRICT: ${ADMIN_DOMAIN_STRICT:-true}
     # NO ports: — only reachable via Nginx on the frontend network
     networks:
       - data
@@ -354,6 +363,13 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3000"
+    environment:
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_COOKIE_SAMESITE: "lax"
+      GF_SECURITY_COOKIE_SECURE: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3001
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
@@ -368,7 +384,8 @@ services:
   frontend:
     build:
       context: ../frontend
-    container_name: iam-frontend
+      dockerfile: Dockerfile
+    container_name: auth_frontend
     ports:
       - "5173:80"
     depends_on:

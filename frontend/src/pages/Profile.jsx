@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getProfile, setupMfa, verifyMfa, disableMfa } from '../api/user.api';
+import useAuth from '../hooks/useAuth';
 
 const Profile = () => {
   const [profile, setProfile] = useState(null);
@@ -11,12 +12,14 @@ const Profile = () => {
   const [mfaCode, setMfaCode] = useState('');
   const [mfaMessage, setMfaMessage] = useState('');
 
+  const { user } = useAuth();
+
   const fetchProfile = async () => {
     try {
       const res = await getProfile();
       setProfile(res);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load profile.');
+      setError(err.message || 'Failed to load profile.');
     } finally {
       setLoading(false);
     }
@@ -33,7 +36,7 @@ const Profile = () => {
       const res = await setupMfa();
       setMfaSetup(res);
     } catch (err) {
-      setMfaMessage(err.response?.data?.message || 'Failed to start MFA setup.');
+      setMfaMessage(err.message || 'Failed to start MFA setup.');
     }
   };
 
@@ -48,7 +51,7 @@ const Profile = () => {
       setMfaMessage('MFA enabled successfully.');
       fetchProfile(); // refresh totpEnabled
     } catch (err) {
-      setMfaMessage(err.response?.data?.message || 'Invalid code.');
+      setMfaMessage(err.message || 'Invalid code.');
     }
   };
 
@@ -60,7 +63,7 @@ const Profile = () => {
       setMfaMessage('MFA disabled.');
       fetchProfile();
     } catch (err) {
-      setMfaMessage(err.response?.data?.message || 'Failed to disable MFA.');
+      setMfaMessage(err.message || 'Failed to disable MFA.');
     }
   };
 
@@ -72,9 +75,9 @@ const Profile = () => {
       <h2>Profile</h2>
 
       <div className="profile-info">
-        <p><strong>Name:</strong> {profile?.name || '—'}</p>
-        <p><strong>Email:</strong> {profile?.email || '—'}</p>
-        <p><strong>Role:</strong> {profile?.role || '—'}</p>
+        <p><strong>Name:</strong> {profile?.name || user?.name || '—'}</p>
+        <p><strong>Email:</strong> {profile?.email || user?.email || '—'}</p>
+        <p><strong>Role:</strong> {profile?.role || user?.role || '—'}</p>
         <p>
           <strong>MFA:</strong>{' '}
           {profile?.totpEnabled ? (

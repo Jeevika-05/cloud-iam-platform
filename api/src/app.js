@@ -19,6 +19,7 @@ import auditRoutes from './modules/audit/audit.routes.js';
 import rbacRoutes from './modules/rbac/rbac.routes.js';
 import securityRoutes from './modules/security/security.routes.js';
 import metricsRoutes from './modules/metrics/metrics.routes.js';
+import adminRoutes from './modules/admin/admin.routes.js';
 import graphRoutes from './modules/graph/graph.routes.js';
 import { successResponse, errorResponse } from './shared/utils/response.js';
 
@@ -199,6 +200,7 @@ app.use('/api/v1/audit', auditRoutes);
 app.use('/api/v1/rbac', rbacRoutes);
 app.use('/api/v1/security', securityRoutes);
 app.use('/api/v1/metrics', metricsRoutes);
+app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/graph', graphRoutes);
 
 // ─────────────────────────────────────────────

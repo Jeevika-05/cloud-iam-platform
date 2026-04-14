@@ -23,6 +23,73 @@ import {
 const MAX_SESSIONS = config.security.maxSessions;
 
 // ─────────────────────────────────────────────
+// ROLE RESOLUTION (Auth vs Authorization separation)
+// ─────────────────────────────────────────────
+/**
+ * Resolves the IAM role for a new OAuth-provisioned user.
+ *
+ * Security rules (in order):
+ *   0. OAUTH_ADMIN_ENABLED must be 'true' — otherwise all users are forced to 'USER'
+ *   1. Email must be verified by the identity provider
+ *   2. Email in ADMIN_EMAILS allowlist → ADMIN
+ *   3. Email domain matches ADMIN_DOMAIN → ADMIN
+ *      - If ADMIN_DOMAIN_STRICT=true, email must also be verified (enforced above)
+ *   4. Default → 'USER'
+ *
+ * NOTE: Called ONLY for net-new provisioning.
+ *       Existing users keep their db role — this function never runs for them.
+ *
+ * @param {string}  email         - Normalized (lowercase, trimmed) email
+ * @param {boolean} emailVerified - Whether the identity provider verified the email
+ * @returns {'ADMIN'|'USER'}
+ */
+function resolveUserRole(email, emailVerified) {
+  // 0. Feature flag: opt-in to any OAuth admin assignment (safe default: off)
+  if (process.env.OAUTH_ADMIN_ENABLED !== 'true') {
+    return { role: 'USER', roleSource: 'DEFAULT' };
+  }
+
+  // 1. Unverified emails may NEVER receive elevated roles
+  if (!emailVerified) {
+    logger.warn('OAUTH_ROLE_RESOLUTION_SKIPPED_UNVERIFIED', { email });
+    return { role: 'USER', roleSource: 'DEFAULT' };
+  }
+
+  const adminEmails = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  const adminDomain = (process.env.ADMIN_DOMAIN || '').trim().toLowerCase();
+
+  // Safe-default guard: warn operators if neither source is configured
+  if (!adminEmails.length && !adminDomain) {
+    logger.warn('OAUTH_ADMIN_CONFIG_MISSING', {
+      message: 'OAUTH_ADMIN_ENABLED=true but no ADMIN_EMAILS or ADMIN_DOMAIN configured — all users default to USER',
+    });
+  }
+
+  // 2. Explicit email allowlist check
+  if (adminEmails.includes(email)) {
+    logger.warn('ADMIN_ROLE_ASSIGNED', { email, reason: 'ADMIN_EMAILS', provider: 'google' });
+    return { role: 'PENDING_ADMIN', roleSource: 'ADMIN_EMAILS' };
+  }
+
+  // 3. Domain-based grant
+  if (adminDomain && email.endsWith(`@${adminDomain}`)) {
+    // ADMIN_DOMAIN_STRICT: require verified email (already guaranteed above, but log clearly)
+    if (process.env.ADMIN_DOMAIN_STRICT === 'true' && !emailVerified) {
+      logger.warn('OAUTH_DOMAIN_ADMIN_BLOCKED_UNVERIFIED', { email, adminDomain });
+      return { role: 'USER', roleSource: 'DEFAULT' };
+    }
+    logger.warn('ADMIN_ROLE_ASSIGNED', { email, reason: 'ADMIN_DOMAIN', provider: 'google' });
+    return { role: 'PENDING_ADMIN', roleSource: 'ADMIN_DOMAIN' };
+  }
+
+  return { role: 'USER', roleSource: 'DEFAULT' };
+}
+
+// ─────────────────────────────────────────────
 // REGISTER
 // ─────────────────────────────────────────────
 export const register = async ({ name, email, password, ipAddress, userAgent, correlationId }) => {
@@ -151,7 +218,7 @@ export const login = async ({ email, password, ipAddress, userAgent, correlation
 // GOOGLE OAUTH LOGIN
 // 🔐 SECURITY FIX: No silent account linking
 // ─────────────────────────────────────────────
-export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userAgent, correlationId }) => {
+export const handleGoogleAuth = async ({ googleId, email, name, emailVerified, ipAddress, userAgent, correlationId }) => {
   const normalizedEmail = email.toLowerCase().trim();
   let user = await prisma.user.findUnique({ where: { googleId } });
 
@@ -174,15 +241,34 @@ export const handleGoogleAuth = async ({ googleId, email, name, ipAddress, userA
     }
 
     // Provision net-new user (no existing account conflict)
+    const { role: assignedRole, roleSource } = resolveUserRole(normalizedEmail, emailVerified);
+    const roleStatus = assignedRole === 'PENDING_ADMIN' ? 'PENDING' : 'ACTIVE';
+
     user = await prisma.user.create({
       data: {
         email: normalizedEmail,
         name,
         googleId,
         provider: 'google',
-        role: 'USER',
+        role: assignedRole,
+        roleSource,
+        roleStatus
       }
     });
+
+    logger.info('OAUTH_USER_PROVISIONED', {
+      email: normalizedEmail,
+      role: assignedRole,
+      provider: 'google',
+      userId: user.id,
+    });
+
+    if (assignedRole === 'PENDING_ADMIN') {
+      logger.warn("ADMIN_PENDING_APPROVAL", {
+        email: normalizedEmail,
+        source: roleSource
+      });
+    }
   }
 
   // Re-use core IAM lockout protection identically

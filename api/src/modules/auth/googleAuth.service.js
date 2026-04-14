@@ -43,6 +43,7 @@ export const verifyGoogleIdToken = async (idToken) => {
       googleId: payload.sub,
       email: payload.email,
       name: payload.name,
+      emailVerified: payload.email_verified === true, // explicit boolean
     };
   } catch (error) {
     if (error instanceof AppError) throw error;
