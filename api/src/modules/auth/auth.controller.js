@@ -96,7 +96,7 @@ export const googleCallback = async (req, res, next) => {
     // 🔥 FIX 1: MFA redirect
     if (result.status === 'MFA_REQUIRED') {
       return res.redirect(
-        `${frontendUrl}/auth/callback?mfa=true&tempToken=${encodeURIComponent(
+        `${frontendUrl}/auth/callback#mfa=true&tempToken=${encodeURIComponent(
           result.tempToken
         )}`
       );
@@ -110,7 +110,7 @@ export const googleCallback = async (req, res, next) => {
 
     // 🔥 FIX 2: pass access token to frontend
     return res.redirect(
-      `${frontendUrl}/auth/callback?token=${encodeURIComponent(
+      `${frontendUrl}/auth/callback#token=${encodeURIComponent(
         result.accessToken
       )}`
     );
@@ -268,17 +268,18 @@ export const refresh = async (req, res, next) => {
 // ─────────────────────────────────────────────
 export const logout = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const sessionId = req.auth.jti; // The exact session that made the request
+
     // Extract access token from Authorization header to blacklist it
     const authHeader = req.headers.authorization;
     const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
 
-    if (refreshToken) {
-      await authService.logout(refreshToken, {
-        correlationId: req.correlationId,
-        accessToken,  // pass for blacklisting
-      });
-    }
+    await authService.logout(sessionId, {
+      correlationId: req.correlationId,
+      accessToken,  // pass for blacklisting
+      userId: req.user.id
+    });
+
     res.clearCookie('refreshToken', getCookieOptions(req));
     return successResponse(res, {}, 'Logged out successfully');
   } catch (err) { next(err); }

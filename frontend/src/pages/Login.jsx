@@ -21,7 +21,7 @@ const Login = () => {
     try {
       const result = await login(email, password);
       if (result.mfaRequired) {
-        navigate('/mfa');
+        navigate('/mfa', { state: { tempToken: result.tempToken } });
       } else if (result.success) {
         if (result.user?.role === 'ADMIN' && result.user?.totpEnabled === false) {
           navigate('/profile', { replace: true });

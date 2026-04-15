@@ -385,7 +385,13 @@ export const internal = Object.freeze({
 // SEED CONFIG
 // ─────────────────────────────────────────────────────────────
 export const seed = Object.freeze({
-  adminPassword:    process.env.SEED_ADMIN_PASSWORD    || 'Admin@1234!',
+  adminPassword: (() => {
+    const p = process.env.SEED_ADMIN_PASSWORD;
+    if (!p && process.env.NODE_ENV === 'production') {
+      throw new Error('[STARTUP] SEED_ADMIN_PASSWORD is required in production');
+    }
+    return p || 'Admin@1234!'; // dev-only fallback
+  })(),
   analystPassword:  process.env.SEED_ANALYST_PASSWORD  || 'Analyst@1234!',
   userPassword:     process.env.SEED_USER_PASSWORD     || 'User@1234!',
   mfaTargetEmail:   process.env.MFA_TARGET_EMAIL       || 'admin_attack@example.com',

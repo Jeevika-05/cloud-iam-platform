@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
 import { validateMfaLogin } from '../api/auth.api';
 
@@ -8,8 +8,17 @@ const MfaPage = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const { tempToken, completeMfaLogin } = useAuth();
+  const { completeMfaLogin } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const tempToken = location.state?.tempToken;
+
+  useEffect(() => {
+    if (!tempToken) {
+      navigate('/login?error=session_expired', { replace: true });
+    }
+  }, [tempToken, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,14 +40,9 @@ const MfaPage = () => {
     }
   };
 
-  // Guard: if no tempToken, user shouldn't be here
+  // Guard: if no tempToken, user shouldn't be here (handled by useEffect redirect)
   if (!tempToken) {
-    return (
-      <div className="mfa-container">
-        <h2>MFA Verification</h2>
-        <p>No MFA session found. Please <a href="/login">login</a> first.</p>
-      </div>
-    );
+    return null;
   }
 
   return (

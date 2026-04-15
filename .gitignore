@@ -1,1 +1,3 @@
 .gitleaks.toml
+aws/
+awscliv2.zip

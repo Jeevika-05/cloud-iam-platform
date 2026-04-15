@@ -9,8 +9,6 @@ import { app as appConfig } from '../config/index.js';
 
 function getRateLimitKey(req) {
   const ip = extractClientInfo(req).ip;
-  const attackId = req.headers['x-attack-id']?.toString();
-  if (attackId) return attackId;
   if (req.user?.id) return req.user.id;
 
   // For login routes: combine IP + email so per-user limits apply
@@ -103,7 +101,7 @@ export const mfaLimiter = rateLimit({
       const tempToken = req.body?.tempToken;
       if (!tempToken) return `mfa-ip:${defaultKey}`;
       const decoded = verifyTempToken(tempToken);
-      return `mfa:${req.headers['x-attack-id'] || decoded.sub}`;
+      return `mfa:${decoded.sub}`;
     } catch {
       return `mfa-ip:${defaultKey}`;
     }

@@ -8,7 +8,6 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [tempToken, setTempToken] = useState(null);
 
   // ─── Refresh Token ──────────────────────────────────────────────────────────
   const refreshToken = useCallback(async () => {
@@ -76,8 +75,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (data?.status === 'MFA_REQUIRED') {
-      setTempToken(data.tempToken);
-      return { mfaRequired: true };
+      return { mfaRequired: true, tempToken: data.tempToken };
     }
 
     const { accessToken, user: loggedInUser } = data;
@@ -102,7 +100,6 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(null);
     setUser(null);
     setIsAuthenticated(false);
-    setTempToken(null);
   }, []);
 
   // ─── Complete MFA Login ─────────────────────────────────────────────────────
@@ -113,14 +110,12 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(accessToken);
     setUser(mfaUser);
     setIsAuthenticated(true);
-    setTempToken(null);
   }, []);
 
   const value = {
     user,
     isAuthenticated,
     loading,
-    tempToken,
     login,
     logout,
     refreshToken,

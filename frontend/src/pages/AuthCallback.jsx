@@ -28,8 +28,10 @@ const AuthCallback = () => {
         const mfa = searchParams.get('mfa');
         const tempToken = searchParams.get('tempToken');
         if (mfa && tempToken) {
-          sessionStorage.setItem('oauth_temp_token', tempToken);
-          navigate('/mfa', { replace: true });
+          navigate('/mfa', { 
+            replace: true,
+            state: { tempToken }
+          });
           return;
         }
 
